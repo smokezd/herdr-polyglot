@@ -122,6 +122,9 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | `HERDR_POLYGLOT_MAX_DRAFT` | `2000` | Characters before the box says the draft is too long |
 | `HERDR_POLYGLOT_PULSE` | `1` | `0` stops the live circle from breathing |
 | `HERDR_POLYGLOT_LOGO` | `1` | `0` leaves the empty draft box unsigned |
+| `HERDR_POLYGLOT_READ_LANGUAGE` | none | Language the agent's replies are [read in](#read-the-agents-reply-in-your-language) |
+| `HERDR_POLYGLOT_READ_REPLIES` | `1` | How many of the latest replies are translated and shown |
+| `HERDR_POLYGLOT_READ_CONTEXT` | `2` | How many replies before those go along as context, unshown |
 
 A draft leaves the machine only for a service you named. With no
 `HERDR_POLYGLOT_PROVIDER`, a command means that command and nothing at all means
@@ -170,9 +173,40 @@ it never leaves your machine and costs nothing to translate.
 motions, edits and counts that make sense inside a text box —
 [the full list](docs/vim.md).
 
+## Read the agent's reply in your language
+
+The other direction: a third action, `wazum.polyglot.read`, translates what the
+agent last said and shows it in a taller popup over the pane. Name the language
+first — there is none to assume:
+
+```bash
+echo "HERDR_POLYGLOT_READ_LANGUAGE=DE" >> "$(herdr plugin config-dir wazum.polyglot)/.env"
+```
+
+```toml
+[[keys.command]]
+key = "prefix+r"
+type = "plugin_action"
+command = "wazum.polyglot.read"
+description = "read the agent's reply in your language"
+```
+
+It goes through the same service a prompt does. For *Claude Code* and *Codex*
+the replies come from the agent's own session file, one per prompt, without its
+tool calls or its thinking; for any other agent the recent terminal output is
+translated as one block. `HERDR_POLYGLOT_READ_REPLIES` says how many of the
+latest replies are shown, and `HERDR_POLYGLOT_READ_CONTEXT` how many before them
+go along so the same thing keeps the same word — *DeepL* takes them as its
+unbilled context and *LM Studio* reads them in its prompt; *Google* and a
+command translate each reply on its own. Code stays out, as it does for a prompt.
+
+In the popup `↑ ↓ PageUp PageDown j k g G` scroll, `tab` shows the reply as the
+agent wrote it, `ctrl+t` tries again after a failure and `esc` or `q` closes.
+
 ## What leaves your machine
 
-With a service on the network named, the draft goes to it, so treat it the way
+With a service on the network named, the draft goes to it — and so do the
+agent's replies you ask to read, with the ones before them that go along as context — so treat it the way
 you treat anything you paste into a web translator: prompts for a coding agent carry file
 paths, code and occasionally a secret, and in live mode the draft goes out again
 after every pause in typing.

@@ -34,3 +34,9 @@ id = "compose"
 title = "polyglot: write a prompt, review before sending"
 contexts = ["pane"]
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/herdr-polyglot\" open --review"]
+
+[[actions]]
+id = "read"
+title = "polyglot: read the agent's reply in your language"
+contexts = ["pane"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/herdr-polyglot\" open --read"]

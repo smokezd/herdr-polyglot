@@ -27,8 +27,26 @@ type service struct {
 // unless a service elsewhere is named: a command on its own means the program it
 // names, and no choice at all means the model loaded in LM Studio.
 func chooseService(settings *config.Settings) service {
-	registry := services(settings.Model)
+	return pick(settings, services(settings.Model, false))
+}
 
+// chooseReplyService decides what the agent's replies go through: the same
+// service a prompt does, the same way, only translating into the language the
+// replies are read in. There is no such language to assume, so until one is
+// named the popup says so and translates nothing.
+func chooseReplyService(settings *config.Settings) service {
+	if settings.Read.Language == "" {
+		name, _ := chosenName(settings)
+		return troubled(settings, name, errors.New(
+			"HERDR_POLYGLOT_READ_LANGUAGE is not set: name the language to read replies in, such as DE"))
+	}
+
+	forReplies := *settings
+	forReplies.Options.TargetLanguage = settings.Read.Language
+	return pick(&forReplies, services(settings.Model, true))
+}
+
+func pick(settings *config.Settings, registry *translation.Registry) service {
 	name, err := chosenName(settings)
 	if err == nil {
 		err = onlyForModels(name, settings.Model)
@@ -45,6 +63,10 @@ func chooseService(settings *config.Settings) service {
 		}
 	}
 
+	return troubled(settings, name, err)
+}
+
+func troubled(settings *config.Settings, name string, err error) service {
 	if settings.ConfigFile != "" {
 		err = fmt.Errorf("%w; configure it in %s", err, settings.ConfigFile)
 	}

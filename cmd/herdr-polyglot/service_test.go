@@ -199,3 +199,44 @@ func TestAnExplicitServiceIsUsedAsAsked(t *testing.T) {
 		t.Errorf("Translate returned %q, want the dry-run marker", translated)
 	}
 }
+
+func TestRepliesAreNotTranslatedUntilTheirLanguageIsNamed(t *testing.T) {
+	t.Parallel()
+
+	chosen := chooseReplyService(&config.Settings{Provider: "dry-run", ConfigFile: "/cfg/.env"})
+
+	if chosen.trouble == nil || !strings.Contains(chosen.trouble.Error(), "HERDR_POLYGLOT_READ_LANGUAGE") ||
+		!strings.Contains(chosen.trouble.Error(), "/cfg/.env") {
+		t.Fatalf("trouble is %v, want the missing setting and where it goes", chosen.trouble)
+	}
+	if _, err := chosen.translator.Translate(context.Background(), "a reply"); err == nil {
+		t.Error("a reply was translated without a language to translate it into")
+	}
+}
+
+func TestRepliesGoThroughTheSameServiceIntoTheirOwnLanguage(t *testing.T) {
+	t.Parallel()
+	settings := &config.Settings{
+		Options: translation.Options{
+			Command:        `printf '%s' "$POLYGLOT_TARGET_LANGUAGE"`,
+			TargetLanguage: "EN-US",
+		},
+		Read: config.ReadSettings{Language: "DE", Replies: 1},
+	}
+
+	chosen := chooseReplyService(settings)
+
+	if chosen.name != "cmd" || chosen.trouble != nil {
+		t.Fatalf("chose %q (trouble %v), want the service a prompt goes through", chosen.name, chosen.trouble)
+	}
+	translated, err := chosen.translator.Translate(context.Background(), "a reply")
+	if err != nil {
+		t.Fatalf("Translate returned unexpected error: %v", err)
+	}
+	if translated != "DE" {
+		t.Errorf("translated into %q, want DE", translated)
+	}
+	if settings.Options.TargetLanguage != "EN-US" {
+		t.Errorf("the prompt language became %q, want it left alone", settings.Options.TargetLanguage)
+	}
+}

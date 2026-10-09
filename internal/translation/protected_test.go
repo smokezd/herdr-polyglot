@@ -190,3 +190,30 @@ func TestProtectingCanBeLookedThrough(t *testing.T) {
 		t.Errorf("Usage returned %+v, want what the service said", spent)
 	}
 }
+
+func TestWhatCameBeforeIsPassedOnWithoutItsCode(t *testing.T) {
+	t.Parallel()
+	service := &spyTranslator{}
+	translator, takesContext := translation.Protecting(service).(translation.ContextualTranslator)
+	if !takesContext {
+		t.Fatal("a protected translator cannot be told what came before")
+	}
+
+	translated, err := translator.TranslateWithContext(context.Background(),
+		"Run `make qa` now.", "I changed `berechneRabatt`:\n\n"+codeBlock)
+	if err != nil {
+		t.Fatalf("TranslateWithContext returned unexpected error: %v", err)
+	}
+
+	if !strings.Contains(translated, "`make qa`") {
+		t.Errorf("the code came back as %q, want it untouched", translated)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if len(service.contexts) != 1 {
+		t.Fatalf("the service was told what came before %d times, want once", len(service.contexts))
+	}
+	if sent := service.contexts[0]; strings.Contains(sent, "berechneRabatt") || strings.Contains(sent, "kunde") {
+		t.Errorf("code from what came before was sent: %q", sent)
+	}
+}

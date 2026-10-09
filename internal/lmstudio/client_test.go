@@ -250,3 +250,26 @@ func TestClosingThePopupIsNotATimeout(t *testing.T) {
 		t.Errorf("Translate returned %v, want the cancellation as it was", err)
 	}
 }
+
+func TestWhatCameBeforeTravelsAheadOfTheTextAndIsNotToBeTranslated(t *testing.T) {
+	t.Parallel()
+	server, captured := serverReturning(t, http.StatusOK, answering("Der Test läuft jetzt."))
+	client := lmstudio.New(lmstudio.WithEndpoint(server.URL), lmstudio.WithTargetLanguage("DE"),
+		lmstudio.WithAgentReplies())
+
+	if _, err := client.TranslateWithContext(context.Background(),
+		"The test passes now.", "I fixed the flaky test."); err != nil {
+		t.Fatalf("TranslateWithContext returned unexpected error: %v", err)
+	}
+
+	user := captured.message("user")
+	if want := "<context>I fixed the flaky test.</context>\n<text>The test passes now.</text>"; user != want {
+		t.Errorf("user message is %q, want %q", user, want)
+	}
+	system := captured.message("system")
+	for _, said := range []string{"German", "coding assistant", "<context>"} {
+		if !strings.Contains(system, said) {
+			t.Errorf("instructions %q do not mention %q", system, said)
+		}
+	}
+}

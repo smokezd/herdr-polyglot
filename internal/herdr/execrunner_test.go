@@ -79,3 +79,15 @@ func TestTheChildNeverSeesTheApiKey(t *testing.T) {
 		t.Error("the child lost the rest of the environment, want only keys removed")
 	}
 }
+
+func TestExecRunnerHandsBackWhatTheBinaryPrinted(t *testing.T) {
+	binary := writeFakeBinary(t, "echo '{\"result\":{}}'\n")
+
+	got, err := herdr.NewExecRunner(binary).Output(context.Background(), "agent", "get", "w1:p3")
+	if err != nil {
+		t.Fatalf("Output returned unexpected error: %v", err)
+	}
+	if string(got) != "{\"result\":{}}\n" {
+		t.Errorf("Output is %q, want what the binary printed", got)
+	}
+}

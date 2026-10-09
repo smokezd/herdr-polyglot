@@ -34,6 +34,10 @@ const (
 	maxDraftVar  = "HERDR_POLYGLOT_MAX_DRAFT"
 	pulseVar     = "HERDR_POLYGLOT_PULSE"
 	logoVar      = "HERDR_POLYGLOT_LOGO"
+	modeVar      = "HERDR_POLYGLOT_MODE"
+	readLangVar  = "HERDR_POLYGLOT_READ_LANGUAGE"
+	readShowVar  = "HERDR_POLYGLOT_READ_REPLIES"
+	readCtxVar   = "HERDR_POLYGLOT_READ_CONTEXT"
 	stateDirVar  = "HERDR_PLUGIN_STATE_DIR"
 	configDirVar = "HERDR_PLUGIN_CONFIG_DIR"
 	binaryVar    = "HERDR_BIN_PATH"
@@ -41,6 +45,13 @@ const (
 	defaultLanguage = "EN-US"
 	defaultBinary   = "herdr"
 	dotenvName      = ".env"
+
+	// ReadMode is what HERDR_POLYGLOT_MODE says when the popup shows the agent's
+	// replies instead of taking a prompt.
+	ReadMode = "read"
+
+	defaultReadReplies = 1
+	defaultReadContext = 2
 )
 
 type Settings struct {
@@ -63,6 +74,21 @@ type Settings struct {
 	Pulse       bool
 	Logo        bool
 	MaxDraft    int
+	// Reading is true when the popup shows the agent's replies, translated,
+	// instead of taking a prompt.
+	Reading bool
+	Read    ReadSettings
+}
+
+// ReadSettings say what the agent's replies are translated into and how many
+// of them are read: Replies are translated and shown, Context more before them
+// only go along so the translation keeps the same words.
+type ReadSettings struct {
+	// Language is empty until it is set: there is no language to assume a
+	// reader wants the agent's replies in.
+	Language string
+	Replies  int
+	Context  int
 }
 
 // ModelSettings say which model translates and what to add to what it is sent.
@@ -113,7 +139,13 @@ func Load(getenv func(string) string) (Settings, error) {
 		Confirm:     given.flag(confirmVar, false),
 		Pulse:       given.flag(pulseVar, true),
 		Logo:        given.flag(logoVar, true),
-		MaxDraft:    given.number(maxDraftVar),
+		MaxDraft:    given.number(maxDraftVar, "characters"),
+		Reading:     lookup(modeVar) == ReadMode,
+		Read: ReadSettings{
+			Language: lookup(readLangVar),
+			Replies:  given.count(readShowVar, defaultReadReplies, 1),
+			Context:  given.count(readCtxVar, defaultReadContext, 0),
+		},
 		Options: translation.Options{
 			APIKey:         orDefault(lookup(scopedKeyVar(provider)), lookup(apiKeyVar)),
 			TargetLanguage: orDefault(lookup(languageVar), defaultLanguage),
@@ -160,7 +192,7 @@ func (r *reading) flag(variable string, whenUnset bool) bool {
 }
 
 // A zero means no number was given and the overlay picks its own.
-func (r *reading) number(variable string) int {
+func (r *reading) number(variable, unit string) int {
 	value := strings.TrimSpace(r.lookup(variable))
 	if value == "" {
 		return 0
@@ -168,8 +200,24 @@ func (r *reading) number(variable string) int {
 
 	number, err := strconv.Atoi(value)
 	if err != nil || number < 0 {
-		r.refuse(variable, value, "not a whole number of characters")
+		r.refuse(variable, value, "not a whole number of "+unit)
 		return 0
+	}
+	return number
+}
+
+// count reads a number of replies, which has a default other than zero and
+// may have to be at least one.
+func (r *reading) count(variable string, whenUnset, least int) int {
+	value := strings.TrimSpace(r.lookup(variable))
+	if value == "" {
+		return whenUnset
+	}
+
+	number, err := strconv.Atoi(value)
+	if err != nil || number < least {
+		r.refuse(variable, value, fmt.Sprintf("not a whole number of replies from %d up", least))
+		return whenUnset
 	}
 	return number
 }

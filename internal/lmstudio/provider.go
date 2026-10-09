@@ -15,6 +15,9 @@ type Provider struct {
 	SystemPromptExtra string
 	UserPromptExtra   string
 	RequestExtra      map[string]any
+	// Replies says the text is the agent's answer, for reading, rather than a
+	// prompt for it.
+	Replies bool
 }
 
 func (Provider) Name() string { return "lmstudio" }
@@ -32,6 +35,9 @@ func (p Provider) New(options translation.Options) (translation.Translator, erro
 		WithSystemPromptExtra(p.SystemPromptExtra),
 		WithUserPromptExtra(p.UserPromptExtra),
 		WithRequestExtra(p.RequestExtra),
+	}
+	if p.Replies {
+		clientOptions = append(clientOptions, WithAgentReplies())
 	}
 	if options.TargetLanguage != "" {
 		clientOptions = append(clientOptions, WithTargetLanguage(options.TargetLanguage))

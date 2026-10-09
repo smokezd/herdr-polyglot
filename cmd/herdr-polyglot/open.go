@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/wazum/herdr-polyglot/internal/config"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
 	"github.com/wazum/herdr-polyglot/internal/overlay"
 )
@@ -24,10 +25,20 @@ func runOpen(ctx context.Context, args []string) error {
 		return fmt.Errorf("no invoking pane: %s is not set; open this from an agent pane", paneEnv)
 	}
 
-	submit := "1"
+	env := map[string]string{
+		"HERDR_POLYGLOT_TARGET": pane,
+		"HERDR_POLYGLOT_SUBMIT": "1",
+	}
+	height := overlay.PopupHeight()
 	for _, arg := range args {
-		if arg == "--review" {
-			submit = "0"
+		switch arg {
+		case "--review":
+			env["HERDR_POLYGLOT_SUBMIT"] = "0"
+		// The agent's replies are read in the same popup, taller: a reply is
+		// longer than a prompt.
+		case "--read":
+			env["HERDR_POLYGLOT_MODE"] = config.ReadMode
+			height = overlay.ReaderHeight()
 		}
 	}
 
@@ -37,11 +48,8 @@ func runOpen(ctx context.Context, args []string) error {
 		PluginID:   os.Getenv(pluginIDEnv),
 		Entrypoint: "overlay",
 		Width:      overlay.PopupWidth,
-		Height:     overlay.PopupHeight(),
-		Env: map[string]string{
-			"HERDR_POLYGLOT_TARGET": pane,
-			"HERDR_POLYGLOT_SUBMIT": submit,
-		},
+		Height:     height,
+		Env:        env,
 	})
 	return err
 }

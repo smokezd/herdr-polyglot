@@ -18,6 +18,7 @@ back to the same pane through the *herdr* CLI: `agent prompt` to send it, or
 | `translation` | The `Translator` and `Provider` ports, the registry of services, the sentence-level cache used for previews, and the decorator that keeps code out of a translation. |
 | `deepl`, `google`, `command`, `lmstudio` | Services behind those ports: two hosts, one program on the machine and a language model served on it. |
 | `herdr` | Talking to *herdr*: the CLI runner, the two delivery targets, the socket. |
+| `transcript` | What the agent in a pane replied: its *Claude Code* or *Codex* session file, split into one reply per prompt, or else the terminal's recent output. |
 | `overlay` | The *Bubble Tea* program: the draft box, the header and footer, the keys. |
 | `vimarea` | A text area with modal editing, used by the overlay. |
 | `config` | Settings from the environment and the plugin's `.env`. |
@@ -43,6 +44,20 @@ translation starts on or off, since `ctrl+l` can turn it on at any time.
 The draft is stored when the program ends, whichever way it ended: *herdr*
 closes a popup by hanging up on it, and `ctrl+c` never passes the close key
 either, so the last word on the draft cannot be a keystroke.
+
+## Reading the agent's replies
+
+`open --read` opens the same popup entrypoint with `HERDR_POLYGLOT_MODE=read`, and
+`run` hands over to `runReader` before anything to do with a draft is built. It
+asks `herdr agent get` which agent and session the pane holds, and `transcript`
+finds the session file by its id. The service is chosen as for a prompt, but built
+a second time with `HERDR_POLYGLOT_READ_LANGUAGE` as its target, since a provider
+fixes its language when it is made.
+
+Each shown reply is translated on its own, told what came before it: the context
+replies and any shown reply ahead of it, the last 4,000 characters. `Protecting`
+passes that along to a `ContextualTranslator` with its code left out, and
+translates the reply alone for a service that is not one.
 
 ## Another translation service
 

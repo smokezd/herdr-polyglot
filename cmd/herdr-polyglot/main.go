@@ -49,14 +49,16 @@ func main() {
 
 // services lists the translation services this build offers; adding another
 // service means adding it here. The first one is the default, and it must be one
-// that keeps the draft on the machine.
-func services(model config.ModelSettings) *translation.Registry {
+// that keeps the draft on the machine. Replies says what is translated is the
+// agent's answer rather than a prompt for it, which a language model is told.
+func services(model config.ModelSettings, replies bool) *translation.Registry {
 	return translation.NewRegistry(
 		lmstudio.Provider{
 			Model:             model.Name,
 			SystemPromptExtra: model.SystemPromptExtra,
 			UserPromptExtra:   model.UserPromptExtra,
 			RequestExtra:      model.RequestExtra,
+			Replies:           replies,
 		},
 		deepl.Provider{},
 		google.Provider{},
@@ -72,15 +74,18 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	chosen := chooseService(&settings)
-	translator := chosen.translator
-
 	// Herdr closes a popup by hanging up on it. Ending on the signal instead of
 	// dying on it is what lets the draft be kept below.
 	ctx, stopListening := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopListening()
 
 	runner := herdr.NewExecRunner(settings.HerdrBinary)
+	if settings.Reading {
+		return runReader(ctx, &settings, runner)
+	}
+
+	chosen := chooseService(&settings)
+	translator := chosen.translator
 	flowOptions := []promptflow.Option{
 		// Writing means translating the same draft again and again, so a preview
 		// pays for each sentence once. Live translation can be switched on at any

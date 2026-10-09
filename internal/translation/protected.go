@@ -46,7 +46,29 @@ func (p *protecting) Translate(ctx context.Context, draft string) (string, error
 	return putBack(translated, protected)
 }
 
+// TranslateWithContext keeps code out of what came before as well. That text is
+// only read, never returned, so its code is left out rather than marked: a
+// marker there would be one the service could mistake for the text's own.
+// A service that cannot be told what came before translates the text alone.
+func (p *protecting) TranslateWithContext(ctx context.Context, text, preceding string) (string, error) {
+	contextual, takesContext := p.translator.(ContextualTranslator)
+	if !takesContext || strings.TrimSpace(preceding) == "" {
+		return p.Translate(ctx, text)
+	}
+
+	marked, protected := takeOut(text)
+	translated, err := contextual.TranslateWithContext(ctx, marked, withoutCode(preceding))
+	if err != nil {
+		return "", err
+	}
+	return putBack(translated, protected)
+}
+
 func (p *protecting) Unwrap() Translator { return p.translator }
+
+func withoutCode(text string) string {
+	return protectedSpans.ReplaceAllString(text, "…")
+}
 
 // takeOut replaces every protected span with a marker, and says what was taken.
 func takeOut(draft string) (marked string, protected []string) {

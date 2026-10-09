@@ -9,6 +9,13 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The agent's replies can be read in your own language: the action
+  `wazum.polyglot.read` translates the latest reply into
+  `HERDR_POLYGLOT_READ_LANGUAGE` and shows it in a popup. `HERDR_POLYGLOT_READ_REPLIES`
+  shows more than one, and `HERDR_POLYGLOT_READ_CONTEXT` (2 by default) sends that
+  many replies before them along as context. *Claude Code* and *Codex* replies come
+  from their session files; any other agent's from the terminal.
+
 - A language model on your own machine translates, through
   [LM Studio](https://lmstudio.ai)'s local server or anything else that answers
   OpenAI-style chat completions: `HERDR_POLYGLOT_PROVIDER=lmstudio`, and it is the

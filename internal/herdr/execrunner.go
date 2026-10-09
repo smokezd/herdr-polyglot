@@ -16,18 +16,25 @@ func NewExecRunner(binary string) ExecRunner {
 }
 
 func (e ExecRunner) Run(ctx context.Context, args ...string) error {
-	var stderr bytes.Buffer
+	_, err := e.Output(ctx, args...)
+	return err
+}
+
+// Output runs the binary like Run and returns what it wrote to stdout.
+func (e ExecRunner) Output(ctx context.Context, args ...string) ([]byte, error) {
+	var stdout, stderr bytes.Buffer
 	command := exec.CommandContext(ctx, e.binary, args...)
+	command.Stdout = &stdout
 	command.Stderr = &stderr
 	command.Env = withoutCredentials(os.Environ())
 
 	if err := command.Run(); err != nil {
 		if message := strings.TrimSpace(stderr.String()); message != "" {
-			return fmt.Errorf("herdr %s: %w: %s", args[0], err, message)
+			return nil, fmt.Errorf("herdr %s: %w: %s", args[0], err, message)
 		}
-		return fmt.Errorf("herdr %s: %w", args[0], err)
+		return nil, fmt.Errorf("herdr %s: %w", args[0], err)
 	}
-	return nil
+	return stdout.Bytes(), nil
 }
 
 // withoutCredentials keeps API keys out of the herdr process, which needs none
