@@ -18,6 +18,7 @@ back to the same pane through the *herdr* CLI: `agent prompt` to send it, or
 | `translation` | The `Translator` and `Provider` ports, the registry of services, the sentence-level cache used for previews, and the decorator that keeps code out of a translation. |
 | `deepl`, `google`, `command`, `lmstudio` | Services behind those ports: two hosts, one program on the machine and a language model served on it. |
 | `herdr` | Talking to *herdr*: the CLI runner, the two delivery targets, the socket. |
+| `readstate` | What a reader hands on between processes — a hidden popup's content, what a reader moving to the other place carries, which agent a reader pane belongs to — and a Unix socket per running reader, so a key pressed in herdr can tell it to translate again, hide or move. |
 | `transcript` | What the agent in a pane replied: its *Claude Code* or *Codex* session file, split into one reply per prompt, or else the terminal's recent output. |
 | `overlay` | The *Bubble Tea* program: the draft box, the header and footer, the keys. |
 | `vimarea` | A text area with modal editing, used by the overlay. |
@@ -58,6 +59,16 @@ Each shown reply is translated on its own, told what came before it: the context
 replies and any shown reply ahead of it, the last 4,000 characters. `Protecting`
 passes that along to a `ContextualTranslator` with its code left out, and
 translates the reply alone for a service that is not one.
+
+A reader is a popup or a pane, and herdr gives the two different powers: a popup
+has no pane id and takes every key while it is open, and herdr cannot hide one;
+a pane can be named and split beside the agent without focus, but not sized.
+So hiding is the reader keeping a `Snapshot` of what it shows in the state
+directory and exiting, and the popup key brings that snapshot back instead of
+translating. Moving is the same snapshot handed to a reader opened in the other
+place, which the moving one starts before it exits. `open` decides what each key
+does in `readAction`; a key reaches a running reader through its socket, named
+after the agent pane and the place.
 
 A service that writes its answer bit by bit also implements
 `StreamingTranslator`, and reports a `Progress` — the thinking so far, the

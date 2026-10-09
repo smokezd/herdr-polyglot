@@ -9,6 +9,7 @@ import (
 	"github.com/wazum/herdr-polyglot/internal/config"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
 	"github.com/wazum/herdr-polyglot/internal/overlay"
+	"github.com/wazum/herdr-polyglot/internal/readstate"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 	paneEnv     = "HERDR_PANE_ID"
 	// configDirEnv is where herdr says the plugin's own settings live.
 	configDirEnv = "HERDR_PLUGIN_CONFIG_DIR"
+	stateDirEnv  = "HERDR_PLUGIN_STATE_DIR"
 )
 
 // runOpen puts the overlay in a floating popup over the pane the keybinding was
@@ -32,17 +34,30 @@ func runOpen(ctx context.Context, args []string) error {
 		"HERDR_POLYGLOT_TARGET": pane,
 		"HERDR_POLYGLOT_SUBMIT": "1",
 	}
-	reading := false
+	reading, how := false, readInPopup
 	for _, arg := range args {
 		switch arg {
 		case "--review":
 			env["HERDR_POLYGLOT_SUBMIT"] = "0"
 		case "--read":
-			env["HERDR_POLYGLOT_MODE"] = config.ReadMode
 			reading = true
+		case "--pane":
+			how = readInPane
+		case "--toggle":
+			how = readElsewhere
 		}
 	}
-	width, height := popupSize(ctx, pane, reading)
+	if reading {
+		store := readstate.New(os.Getenv(stateDirEnv))
+		// A key pressed in a reader pane acts for the agent beside it, while
+		// that reader is still there: herdr may give the id to another pane.
+		agent := store.Owner(pane)
+		if agent != pane && store.Tell(ctx, agent, readstate.Pane, "") != nil {
+			agent = pane
+		}
+		return readAction(ctx, how, agent, herdrReaders{store: store})
+	}
+	width, height := popupSize(ctx, pane, false)
 
 	socket := herdr.NewSocket(orDefault(os.Getenv(socketEnv), defaultSocketPath()))
 

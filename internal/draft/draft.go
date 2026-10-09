@@ -13,19 +13,29 @@ import (
 )
 
 // Store is a directory of drafts, one per pane.
-type Store struct{ directory string }
+type Store struct {
+	directory string
+	kind      string
+}
 
 // NewStore takes the directory herdr set aside for this plugin's state. An empty
 // directory means drafts are simply not kept.
 func NewStore(directory string) Store {
-	return Store{directory: directory}
+	return Store{directory: directory, kind: "draft"}
+}
+
+// Of keeps another kind of text in the same directory, one per pane, apart from
+// the drafts.
+func (s Store) Of(kind string) Store {
+	s.kind = kind
+	return s
 }
 
 func (s Store) For(target string) Slot {
 	if s.directory == "" {
 		return Slot{}
 	}
-	return Slot{path: filepath.Join(s.directory, fileName(target))}
+	return Slot{path: filepath.Join(s.directory, fileName(s.kind, target))}
 }
 
 // Slot is the draft belonging to one pane.
@@ -96,7 +106,7 @@ func (s Slot) Clear() error {
 
 // fileName turns a pane id into one path component. Hashing keeps a target that
 // contains separators from pointing anywhere but the store.
-func fileName(target string) string {
+func fileName(kind, target string) string {
 	digest := sha256.Sum256([]byte(target))
-	return "draft-" + hex.EncodeToString(digest[:8])
+	return kind + "-" + hex.EncodeToString(digest[:8])
 }

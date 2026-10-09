@@ -209,8 +209,38 @@ thinks first shows its thinking, faded, while it goes on, and folds it into one
 line — `▸ thought for 8s` — as soon as the answer begins. The view follows the
 end of the text until you scroll away from it. Other services answer all at once.
 
+It can also open in a pane beside the agent, which leaves the keyboard where it
+was, so you keep typing to the agent while you read. Bind both, and the key that
+moves it between the two:
+
+```toml
+[[keys.command]]
+key = "prefix+ctrl+r"
+type = "plugin_action"
+command = "wazum.polyglot.read-pane"
+
+[[keys.command]]
+key = "prefix+alt+r"
+type = "plugin_action"
+command = "wazum.polyglot.read-toggle"
+```
+
+- The pane key translates the latest reply again in the pane that is already
+  open, dropping what it showed.
+- `h` in the popup hides it. The popup key then brings it back as it was, without
+  translating again; once a popup is closed with `esc`, the key translates afresh.
+- `m` in either, or the toggle key, opens what is on show in the other place.
+  A hidden popup is moved too.
+
+A popup takes every key while it is open, herdr's own included, so hiding it is
+`h`, not the key that opened it. A reply still being translated when its reader
+is hidden or moved is translated again by the one that takes over; finished ones
+are not. herdr sizes a pane itself, so the reading width and height apply to the
+popup only.
+
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, `tab` shows the reply as the
-agent wrote it, `ctrl+t` tries again after a failure and `esc` or `q` closes.
+agent wrote it, `ctrl+t` tries again after a failure, `h` hides the popup, `m`
+moves it, and `esc` or `q` closes.
 
 ## What leaves your machine
 

@@ -236,3 +236,34 @@ func TestAFloodingSocketIsCutOff(t *testing.T) {
 		t.Error("OpenPopup read an endless reply, want it cut off")
 	}
 }
+
+func TestASplitOpensBesideTheAgentWithoutTakingTheKeyboard(t *testing.T) {
+	t.Parallel()
+	server := listen(t, `{"id":"polyglot","result":{"plugin_pane":{"pane":{"pane_id":"w1:p9"}}}}`)
+
+	pane, err := herdr.NewSocket(server.path).OpenSplit(context.Background(), &herdr.Split{
+		PluginID:   "wazum.polyglot",
+		Entrypoint: "overlay",
+		Beside:     "w1:p3",
+		Direction:  "right",
+		Env:        map[string]string{"HERDR_POLYGLOT_TARGET": "w1:p3"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSplit returned unexpected error: %v", err)
+	}
+	if pane != "w1:p9" {
+		t.Errorf("OpenSplit returned pane %q, want w1:p9", pane)
+	}
+
+	params, _ := server.lastRequest(t)["params"].(map[string]any)
+	for field, want := range map[string]any{
+		"placement": "split", "target_pane_id": "w1:p3", "direction": "right", "focus": false,
+	} {
+		if params[field] != want {
+			t.Errorf("%s is %v, want %v", field, params[field], want)
+		}
+	}
+	if _, sized := params["width"]; sized {
+		t.Error("a width was sent, which herdr refuses for a split")
+	}
+}

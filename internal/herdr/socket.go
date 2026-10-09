@@ -82,6 +82,52 @@ func (s Socket) OpenPopup(ctx context.Context, popup Popup) (string, error) {
 	return opened.PluginPane.Pane.PaneID, nil
 }
 
+// Split is a plugin pane opened beside another, as an ordinary herdr pane.
+// Herdr sizes a split itself: it takes no width or height.
+type Split struct {
+	PluginID   string
+	Entrypoint string
+	// Beside is the pane to split; Direction is "right" or "down".
+	Beside    string
+	Direction string
+	// Focus moves the keyboard to the new pane. Left false, input stays where
+	// it was.
+	Focus bool
+	Env   map[string]string
+}
+
+// OpenSplit opens a plugin pane beside another and says which pane it is.
+func (s Socket) OpenSplit(ctx context.Context, split *Split) (string, error) {
+	params := map[string]any{
+		"plugin_id":      split.PluginID,
+		"entrypoint":     split.Entrypoint,
+		"placement":      "split",
+		"target_pane_id": split.Beside,
+		"direction":      split.Direction,
+		"focus":          split.Focus,
+	}
+	if len(split.Env) > 0 {
+		params["env"] = split.Env
+	}
+
+	raw, err := s.call(ctx, "plugin.pane.open", params)
+	if err != nil {
+		return "", err
+	}
+
+	var opened struct {
+		PluginPane struct {
+			Pane struct {
+				PaneID string `json:"pane_id"`
+			} `json:"pane"`
+		} `json:"plugin_pane"`
+	}
+	if err := json.Unmarshal(raw, &opened); err != nil {
+		return "", fmt.Errorf("reading opened pane: %w", err)
+	}
+	return opened.PluginPane.Pane.PaneID, nil
+}
+
 func (s Socket) call(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()

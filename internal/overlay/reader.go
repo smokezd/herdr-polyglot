@@ -49,6 +49,42 @@ type ReaderOptions struct {
 	// opens. The replies are still shown, as they were written.
 	Trouble error
 	Pulse   bool
+	// InPane says the reader is a pane beside the agent rather than a popup
+	// over it. A pane is not hidden: it is simply not looked at.
+	InPane bool
+	// Resumed is what the reader was showing before it was hidden or moved. It
+	// is shown again as it was, and only a reply left unfinished is translated.
+	Resumed *Snapshot
+	// Hide keeps what is on show for the popup to come back to, and Move hands
+	// it to a reader opened in the other place. Without them the keys do
+	// nothing.
+	Hide func(Snapshot) error
+	Move func(Snapshot) error
+}
+
+// Snapshot is what a reader shows, with nothing that ties it to the process
+// showing it, so another can take over.
+type Snapshot struct {
+	Source  string          `json:"source"`
+	Whole   bool            `json:"whole"`
+	Shown   []string        `json:"shown"`
+	Context []string        `json:"context"`
+	Results []SnapshotReply `json:"results"`
+	// Next is the first reply not translated whole yet.
+	Next int `json:"next"`
+	// Where the text was scrolled to: From of Rows rows, wrapped at the width
+	// it was shown at, or the end, which keeps following what is written.
+	From     int  `json:"from"`
+	Rows     int  `json:"rows"`
+	AtEnd    bool `json:"at_end"`
+	Original bool `json:"original"`
+}
+
+// SnapshotReply is one reply's translation as far as it had come.
+type SnapshotReply struct {
+	Text     string        `json:"text"`
+	Thinking string        `json:"thinking"`
+	Took     time.Duration `json:"took"`
 }
 
 // maxContext is how much of what came before travels with a reply. The end of
@@ -78,15 +114,23 @@ type Reader struct {
 	results []result
 	// next is the reply being translated, or len(shown) once all are done.
 	next int
-	// attempt tells a try that was given up on from the one that replaced it.
-	attempt  int
+	// attempt tells a try that was given up on from the one that replaced it,
+	// and fetch a reading of the replies from the one that replaced it.
+	attempt int
+	fetch   int
+	// stop gives up on the translation under way. It is a closure, so every
+	// copy of the model stops the same one.
+	stop     context.CancelFunc
 	failure  error
 	original bool
 	from     int
 	// follow keeps the end of the text in view while it is being written, until
 	// the reader scrolls away from it.
 	follow bool
-	pane   tea.WindowSizeMsg
+	// returnTo is where a reader coming back was scrolled to, kept until the
+	// pane's size is known: only then does the text have rows to count.
+	returnTo *Snapshot
+	pane     tea.WindowSizeMsg
 }
 
 // result is one reply's translation as far as it has come.
@@ -94,8 +138,10 @@ type result struct {
 	text     string
 	thinking string
 	thought  bool
-	// began and ended time the thinking, for the line it collapses into.
-	began, ended time.Time
+	// began times the thinking, and took is how long it went on, for the line
+	// it collapses into.
+	began time.Time
+	took  time.Duration
 }
 
 func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator, options ReaderOptions) Reader {
@@ -104,7 +150,7 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 	}
 	canvas := Model{styles: newStyles(), options: Options{Live: true, Pulse: options.Pulse}}
 	canvas.width = maxContentWidth
-	return Reader{
+	reader := Reader{
 		ctx:        ctx,
 		replies:    replies,
 		translator: translator,
@@ -112,14 +158,61 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		canvas:     canvas,
 		failure:    options.Trouble,
 		follow:     true,
+		stop:       func() {},
 	}
+	if saved := options.Resumed; saved != nil {
+		reader.loaded = true
+		reader.options.Source, reader.options.Whole = saved.Source, saved.Whole
+		reader.shown, reader.context = saved.Shown, saved.Context
+		reader.results = make([]result, len(saved.Shown))
+		for index, kept := range saved.Results {
+			if index < len(reader.results) {
+				reader.results[index] = result{
+					text: kept.Text, thinking: kept.Thinking, thought: true, took: kept.Took,
+				}
+			}
+		}
+		reader.next = min(max(saved.Next, 0), len(saved.Shown))
+		reader.original = saved.Original
+		// Until the pane's size says where that is, the reader comes back
+		// where it was rather than at the end.
+		reader.follow = false
+		reader.returnTo = saved
+	}
+	return reader
+}
+
+// Snapshot is what the reader shows now. A reply still being translated is
+// left out, and translated again by whichever reader takes over.
+func (r Reader) Snapshot() Snapshot {
+	saved := Snapshot{
+		Source: r.options.Source, Whole: r.options.Whole,
+		Shown: r.shown, Context: r.context, Next: r.next,
+		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original,
+	}
+	for index := range r.shown {
+		kept := SnapshotReply{}
+		if index < r.next {
+			result := r.results[index]
+			kept = SnapshotReply{Text: result.text, Thinking: result.thinking, Took: result.took}
+		}
+		saved.Results = append(saved.Results, kept)
+	}
+	return saved
 }
 
 type (
 	repliesMsg struct {
+		fetch   int
 		replies []string
 		err     error
 	}
+	// What a reader is told from outside, by a key pressed elsewhere.
+	hideAskedMsg    struct{}
+	moveAskedMsg    struct{}
+	refreshAskedMsg struct{}
+	// resumeMsg goes on with a reply a reader before this one left unfinished.
+	resumeMsg struct{}
 	// replyProgressMsg carries the channels it came from, so the next piece is
 	// listened for where this one arrived.
 	replyProgressMsg struct {
@@ -134,11 +227,56 @@ type (
 	}
 )
 
+// HideAsked, MoveAsked and RefreshAsked are what a running reader is told to
+// do by a key pressed outside it.
+func HideAsked() tea.Msg    { return hideAskedMsg{} }
+func MoveAsked() tea.Msg    { return moveAskedMsg{} }
+func RefreshAsked() tea.Msg { return refreshAskedMsg{} }
+
 func (r Reader) Init() tea.Cmd {
-	return func() tea.Msg {
-		replies, err := r.replies.Latest(r.ctx, r.options.Replies+r.options.Context)
-		return repliesMsg{replies: replies, err: err}
+	if r.options.Resumed != nil {
+		if r.next < len(r.shown) && r.options.Trouble == nil {
+			// Starting changes the model, which Init cannot keep.
+			return func() tea.Msg { return resumeMsg{} }
+		}
+		return nil
 	}
+	return r.fetchReplies()
+}
+
+func (r Reader) fetchReplies() tea.Cmd {
+	ctx, replies, fetch := r.ctx, r.replies, r.fetch
+	wanted := r.options.Replies + r.options.Context
+	return func() tea.Msg {
+		found, err := replies.Latest(ctx, wanted)
+		return repliesMsg{fetch: fetch, replies: found, err: err}
+	}
+}
+
+// refresh drops what is on show and reads the agent's latest replies again.
+func (r Reader) refresh() (tea.Model, tea.Cmd) {
+	r.stop()
+	r.attempt++
+	r.fetch++
+	r.loaded, r.shown, r.context, r.results, r.next = false, nil, nil, nil, 0
+	r.failure, r.original, r.from, r.follow = r.options.Trouble, false, 0, true
+	r.canvas.endPulse()
+	fetching := r.fetchReplies()
+	return r, fetching
+}
+
+// handOn gives what is on show to whoever keeps it, and closes this reader.
+// If it cannot be kept the reader stays, and says why.
+func (r Reader) handOn(keep func(Snapshot) error) (tea.Model, tea.Cmd) {
+	if keep == nil {
+		return r, nil
+	}
+	if err := keep(r.Snapshot()); err != nil {
+		r.failure = err
+		return r, nil
+	}
+	r.stop()
+	return r, tea.Quit
 }
 
 func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -146,13 +284,30 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		r.pane = msg
 		r.canvas.width = max(msg.Width-draftFrame, 1)
+		if saved := r.returnTo; saved != nil {
+			r.returnTo = nil
+			r.scrollBack(saved)
+		}
 		r.keepInView()
 		return r, nil
 
 	case tea.KeyMsg:
 		return r.handleKey(msg)
 
+	case hideAskedMsg:
+		return r.handOn(r.options.Hide)
+	case moveAskedMsg:
+		return r.handOn(r.options.Move)
+	case refreshAskedMsg:
+		return r.refresh()
+	case resumeMsg:
+		started := r.startTranslating()
+		return r, started
+
 	case repliesMsg:
+		if msg.fetch != r.fetch {
+			return r, nil
+		}
 		r.loaded = true
 		if msg.err != nil {
 			r.failure = msg.err
@@ -209,7 +364,7 @@ func (s result) advanced(so Progress, now time.Time) result {
 		s.began = now
 	}
 	if so.Thought && !s.thought && !s.began.IsZero() {
-		s.ended = now
+		s.took = now.Sub(s.began)
 	}
 	s.thinking, s.text, s.thought = so.Thinking, so.Text, s.thought || so.Thought
 	return s
@@ -218,8 +373,8 @@ func (s result) advanced(so Progress, now time.Time) result {
 // finished takes the whole translation, which has had its code put back and
 // was checked; what streamed in was only ever a preview of it.
 func (s result) finished(text string, now time.Time) result {
-	if !s.began.IsZero() && s.ended.IsZero() {
-		s.ended = now
+	if !s.began.IsZero() && !s.thought {
+		s.took = now.Sub(s.began)
 	}
 	s.text, s.thought = text, true
 	return s
@@ -245,8 +400,11 @@ func (r *Reader) startTranslating() tea.Cmd {
 // newest piece: each one holds everything before it, so one the screen had no
 // time for is not missed.
 func (r *Reader) translate(index int) tea.Cmd {
+	r.stop()
 	r.attempt++
 	attempt := r.attempt
+	ctx, stop := context.WithCancel(r.ctx)
+	r.stop = stop
 	text := r.shown[index]
 	preceding := lastOf(strings.Join(append(append([]string(nil), r.context...), r.shown[:index]...), "\n\n"),
 		maxContext)
@@ -267,7 +425,7 @@ func (r *Reader) translate(index int) tea.Cmd {
 		}
 	}
 
-	ctx, translator := r.ctx, r.translator
+	translator := r.translator
 	go func() {
 		translated, err := translator.TranslateReply(ctx, text, preceding, func(so Progress) {
 			newest(replyProgressMsg{attempt: attempt, index: index, so: so, pieces: pieces, done: done})
@@ -315,6 +473,11 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Type == tea.KeyEsc, key.Type == tea.KeyCtrlC, key.String() == "q":
 		return r, tea.Quit
 
+	case key.String() == "h" && !r.options.InPane:
+		return r.handOn(r.options.Hide)
+	case key.String() == "m":
+		return r.handOn(r.options.Move)
+
 	case key.Type == tea.KeyTab:
 		r.original = !r.original
 		r.from = r.clamp(r.from)
@@ -342,6 +505,21 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.scrollTo(r.total())
 	}
 	return r, nil
+}
+
+// scrollBack puts the view where an earlier reader had it. The same share of
+// the text is the same place even when it wraps at another width, as it does
+// when it moves between a popup and a pane.
+func (r *Reader) scrollBack(saved *Snapshot) {
+	if saved.AtEnd {
+		r.follow = true
+		return
+	}
+	row := saved.From
+	if saved.Rows > 0 {
+		row = (saved.From*r.total() + saved.Rows/2) / saved.Rows
+	}
+	r.scrollTo(row)
 }
 
 // scrollTo moves the view, and keeps following the text only if the move left
@@ -427,7 +605,7 @@ func (r Reader) addResult(index int, reply string, add func(string, lipgloss.Sty
 
 	if result.thinking != "" {
 		if result.thought {
-			add("▸ "+thoughtFor(result.ended.Sub(result.began)), look.faded)
+			add("▸ "+thoughtFor(result.took), look.faded)
 		} else {
 			add("▾ thinking …", look.accent)
 			add(result.thinking, look.faded)
@@ -523,9 +701,22 @@ func (r Reader) footer(inner int) string {
 		said := cutTo("✗ "+r.failure.Error(), max(inner-lipgloss.Width(keys)-2, 1))
 		return spread(" "+look.danger.Render(said), keys, inner)
 	}
-	return spread(" "+strings.Join([]string{
-		key("↑↓", "read"), key("tab", r.otherView()), key("esc", "close"),
-	}, separator), "", inner)
+	hints := []string{key("↑↓", "read"), key("tab", r.otherView())}
+	if r.options.Hide != nil && !r.options.InPane {
+		hints = append(hints, key("h", "hide"))
+	}
+	if r.options.Move != nil {
+		hints = append(hints, key("m", "→ "+r.elsewhere()))
+	}
+	hints = append(hints, key("esc", "close"))
+	return spread(" "+strings.Join(hints, separator), "", inner)
+}
+
+func (r Reader) elsewhere() string {
+	if r.options.InPane {
+		return "popup"
+	}
+	return "pane"
 }
 
 func (r Reader) otherView() string {

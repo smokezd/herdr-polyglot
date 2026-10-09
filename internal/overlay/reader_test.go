@@ -268,3 +268,183 @@ func TestAStreamedAnswerKeepsItsEndInView(t *testing.T) {
 		t.Errorf("the view stayed at the top while the answer grew:\n%s", final)
 	}
 }
+
+func TestAHiddenPopupComesBackAsItWasWithoutAskingTheServiceAgain(t *testing.T) {
+	t.Parallel()
+	translator := &upperTranslator{}
+	var kept overlay.Snapshot
+
+	first := newReader(t, &fixedReplies{replies: []string{"first answer"}}, translator, overlay.ReaderOptions{
+		Replies: 1,
+		Hide:    func(saved overlay.Snapshot) error { kept = saved; return nil },
+	})
+	waitForText(t, first, "FIRST ANSWER", "h hide")
+	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if len(kept.Results) != 1 || kept.Results[0].Text != "FIRST ANSWER" || kept.Next != 1 {
+		t.Fatalf("kept %+v, want the finished translation", kept)
+	}
+
+	asked := len(translator.told())
+	replies := &fixedReplies{replies: []string{"a newer answer"}}
+	again := newReader(t, replies, translator, overlay.ReaderOptions{Replies: 1, Resumed: &kept})
+	waitForText(t, again, "FIRST ANSWER")
+	again.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	again.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if now := len(translator.told()); now != asked {
+		t.Errorf("the service was asked %d more times, want none", now-asked)
+	}
+	if replies.asked != 0 {
+		t.Error("the agent's replies were read again for a popup that came back")
+	}
+}
+
+func TestAReplyLeftUnfinishedIsTranslatedByTheReaderThatTakesOver(t *testing.T) {
+	t.Parallel()
+	kept := overlay.Snapshot{
+		Source: "Claude Code", Shown: []string{"done", "half"},
+		Results: []overlay.SnapshotReply{{Text: "FERTIG"}, {}}, Next: 1,
+	}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, &fixedReplies{}, translator, overlay.ReaderOptions{Replies: 2, Resumed: &kept})
+	waitForText(t, reader, "FERTIG", "HALF")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 1 || told[0] != "done" {
+		t.Errorf("the service was told %q, want only the unfinished reply, after the finished one", told)
+	}
+}
+
+func TestARefreshDropsWhatWasShownAndTranslatesTheLatestReplies(t *testing.T) {
+	t.Parallel()
+	replies := &fixedReplies{replies: []string{"old answer"}}
+
+	reader := newReader(t, replies, &upperTranslator{}, overlay.ReaderOptions{Replies: 1, InPane: true})
+	waitForText(t, reader, "OLD ANSWER")
+	replies.replies = []string{"new answer"}
+	reader.Send(overlay.RefreshAsked())
+	waitForText(t, reader, "NEW ANSWER")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "OLD ANSWER") {
+		t.Errorf("the old translation is still on show:\n%s", final)
+	}
+}
+
+func TestMovingHandsWhatIsShownToTheOtherPlace(t *testing.T) {
+	t.Parallel()
+	moved := make(chan overlay.Snapshot, 1)
+
+	reader := newReader(t, &fixedReplies{replies: []string{"answer"}}, &upperTranslator{}, overlay.ReaderOptions{
+		Replies: 1, InPane: true,
+		Move: func(saved overlay.Snapshot) error { moved <- saved; return nil },
+	})
+	waitForText(t, reader, "ANSWER", "m → popup")
+	reader.Send(overlay.MoveAsked())
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if saved := <-moved; len(saved.Results) != 1 || saved.Results[0].Text != "ANSWER" {
+		t.Errorf("moved %+v, want the translation", saved)
+	}
+}
+
+func TestAPaneCannotBeHidden(t *testing.T) {
+	t.Parallel()
+	hidden := false
+
+	reader := newReader(t, &fixedReplies{replies: []string{"answer"}}, &upperTranslator{}, overlay.ReaderOptions{
+		Replies: 1, InPane: true,
+		Hide: func(overlay.Snapshot) error { hidden = true; return nil },
+	})
+	waitForText(t, reader, "ANSWER")
+	reader.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if hidden {
+		t.Error("a pane was hidden")
+	}
+}
+
+// numbered is a reply of that many lines, each saying which it is.
+func numbered(lines int) string {
+	text := make([]string, lines)
+	for i := range text {
+		text[i] = "zeile " + strconv.Itoa(i)
+	}
+	return strings.Join(text, "\n")
+}
+
+func readerAt(t *testing.T, width int, options overlay.ReaderOptions) *teatest.TestModel {
+	t.Helper()
+	options.Source, options.Service, options.Language, options.Replies = "Claude Code", "deepl", "DE", 1
+	return teatest.NewTestModel(t,
+		overlay.NewReader(context.Background(), &fixedReplies{replies: []string{numbered(100)}},
+			&upperTranslator{}, options),
+		teatest.WithInitialTermSize(width, 24))
+}
+
+func TestAHiddenPopupComesBackScrolledWhereItWas(t *testing.T) {
+	t.Parallel()
+	var kept overlay.Snapshot
+
+	first := readerAt(t, 80, overlay.ReaderOptions{
+		Hide: func(saved overlay.Snapshot) error { kept = saved; return nil },
+	})
+	waitForText(t, first, "ZEILE 99")
+	first.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	for range 40 {
+		first.Send(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	waitForText(t, first, "ZEILE 40")
+	first.Send(tea.KeyMsg{Runes: []rune("h"), Type: tea.KeyRunes})
+	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	if kept.From != 40 || kept.AtEnd {
+		t.Fatalf("kept the view at row %d (at the end: %v), want row 40", kept.From, kept.AtEnd)
+	}
+
+	again := readerAt(t, 80, overlay.ReaderOptions{Resumed: &kept})
+	again.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	again.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	view := again.FinalModel(t).View()
+	if !strings.Contains(view, "ZEILE 40 ") || strings.Contains(view, "ZEILE 39 ") {
+		t.Errorf("the popup came back elsewhere:\n%s", view)
+	}
+}
+
+func TestAMovedReaderKeepsTheSameShareOfTheTextInView(t *testing.T) {
+	t.Parallel()
+	kept := overlay.Snapshot{
+		Source: "Claude Code", Shown: []string{numbered(100)},
+		Results: []overlay.SnapshotReply{{Text: strings.ToUpper(numbered(100))}}, Next: 1,
+		From: 100, Rows: 200,
+	}
+
+	moved := readerAt(t, 80, overlay.ReaderOptions{Resumed: &kept})
+	moved.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	moved.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	if view := moved.FinalModel(t).View(); !strings.Contains(view, "ZEILE 50 ") {
+		t.Errorf("halfway through the text before is not halfway through it now:\n%s", view)
+	}
+}
+
+func TestAReaderThatFollowedTheEndStillDoesWhereverItGoes(t *testing.T) {
+	t.Parallel()
+	kept := overlay.Snapshot{
+		Source: "Claude Code", Shown: []string{numbered(100)},
+		Results: []overlay.SnapshotReply{{Text: strings.ToUpper(numbered(100))}}, Next: 1,
+		From: 3, Rows: 50, AtEnd: true,
+	}
+
+	moved := readerAt(t, 120, overlay.ReaderOptions{Resumed: &kept})
+	moved.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	moved.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	if view := moved.FinalModel(t).View(); !strings.Contains(view, "ZEILE 99") {
+		t.Errorf("the end is not in view:\n%s", view)
+	}
+}

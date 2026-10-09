@@ -19,6 +19,11 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   thinking is shown while it goes on and folded into one line once the answer
   begins — whether the server sends it in `reasoning_content`, `reasoning` or
   `<think>` tags.
+- The agent's replies can be read in a pane beside it that leaves the keyboard
+  where it was: `wazum.polyglot.read-pane`, which translates again in the pane
+  already open. `h` hides the reading popup and its key brings it back without
+  translating again; `m`, or `wazum.polyglot.read-toggle`, moves what is on show
+  between popup and pane.
 - Both popups can be sized: `HERDR_POLYGLOT_WIDTH` and `HERDR_POLYGLOT_HEIGHT` for
   the prompt, `HERDR_POLYGLOT_READ_WIDTH` and `HERDR_POLYGLOT_READ_HEIGHT` for the
   replies, each in cells or as a share of the screen such as `80%`. The text fills
