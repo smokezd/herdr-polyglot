@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -113,8 +114,10 @@ func claudeTurns(records io.Reader) ([]string, error) {
 
 		var said string
 		var blocks []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
 		}
 		if json.Unmarshal(record.Message.Content, &said) != nil {
 			if json.Unmarshal(record.Message.Content, &blocks) != nil {
@@ -137,13 +140,65 @@ func claudeTurns(records io.Reader) ([]string, error) {
 		case "assistant":
 			turns.say(said)
 			for _, block := range blocks {
-				if block.Type == "text" {
+				switch block.Type {
+				case "text":
 					turns.say(block.Text)
+				case "tool_use":
+					turns.say(addressedToTheReader(block.Name, block.Input))
 				}
 			}
 		}
 	})
 	return turns.done(), err
+}
+
+// addressedToTheReader is what a tool call says to the person at the
+// terminal rather than to the machine: the questions Claude Code asks, with
+// their options numbered as the terminal numbers them, and the plan it asks to
+// have approved. Every other tool call is the agent's own work.
+func addressedToTheReader(tool string, input json.RawMessage) string {
+	switch tool {
+	case "AskUserQuestion":
+		var asked struct {
+			Questions []struct {
+				Question string `json:"question"`
+				Header   string `json:"header"`
+				Options  []struct {
+					Label       string `json:"label"`
+					Description string `json:"description"`
+				} `json:"options"`
+			} `json:"questions"`
+		}
+		if json.Unmarshal(input, &asked) != nil {
+			return ""
+		}
+		var questions []string
+		for _, question := range asked.Questions {
+			lines := []string{question.Question}
+			if question.Header != "" {
+				lines[0] = "**" + question.Header + ":** " + question.Question
+			}
+			for index, option := range question.Options {
+				line := strconv.Itoa(index+1) + ". " + option.Label
+				if option.Description != "" {
+					line += " — " + option.Description
+				}
+				lines = append(lines, line)
+			}
+			questions = append(questions, strings.Join(lines, "\n"))
+		}
+		return strings.Join(questions, "\n\n")
+
+	case "ExitPlanMode":
+		var plan struct {
+			Plan string `json:"plan"`
+		}
+		if json.Unmarshal(input, &plan) != nil {
+			return ""
+		}
+		return plan.Plan
+	}
+	return ""
 }
 
 // codexTurns reads a Codex session, which records each prompt and each thing

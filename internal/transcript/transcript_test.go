@@ -165,3 +165,45 @@ func TestAPaneWithoutATranscriptIsReadOffTheTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestAQuestionOrAPlanPutToTheReaderIsPartOfTheReply(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "projects", "-p", "q-1.jsonl"),
+		`{"type":"user","message":{"role":"user","content":"make the popup resizable"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"One thing decides it:"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Which popup?","header":"Popup","options":[{"label":"Both","description":"Each its own size."},{"label":"Only the reader"}]}]}}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"ExitPlanMode","input":{"plan":"# Plan\n\nDo it."}}]}}`,
+	)
+	herdr := &fakeHerdr{agent: `{"agent":"claude","cwd":"/p","agent_session":{"value":"q-1"}}`}
+
+	got := texts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Claude: home}), 1)
+
+	want := "One thing decides it:\n\n**Popup:** Which popup?\n1. Both — Each its own size.\n2. Only the reader\n\n# Plan\n\nDo it."
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("reply is %q, want %q", got, want)
+	}
+}
+
+func TestEveryQuestionOfAGroupIsInTheReplyNotOnlyTheTabOnScreen(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "projects", "-p", "q-2.jsonl"),
+		`{"type":"user","message":{"role":"user","content":"plan it"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[`+
+			`{"question":"How many?","header":"Counts","options":[{"label":"One"},{"label":"Two"}]},`+
+			`{"question":"From where?","header":"Source","options":[{"label":"Files"},{"label":"Screen"}]},`+
+			`{"question":"Which language?","header":"Language","options":[{"label":"German"}]}]}}]}}`,
+	)
+	herdr := &fakeHerdr{agent: `{"agent":"claude","cwd":"/p","agent_session":{"value":"q-2"}}`}
+
+	got := texts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Claude: home}), 1)
+
+	want := "**Counts:** How many?\n1. One\n2. Two\n\n" +
+		"**Source:** From where?\n1. Files\n2. Screen\n\n" +
+		"**Language:** Which language?\n1. German"
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("reply is %q, want every question in turn", got)
+	}
+}

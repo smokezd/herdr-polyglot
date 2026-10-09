@@ -24,6 +24,8 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   already open. `h` hides the reading popup and its key brings it back without
   translating again; `m`, or `wazum.polyglot.read-toggle`, moves what is on show
   between popup and pane.
+- A *Claude Code* reply that asks you something now has the question and its
+  numbered options in it, and one that asks you to approve a plan has the plan.
 - Both popups can be sized: `HERDR_POLYGLOT_WIDTH` and `HERDR_POLYGLOT_HEIGHT` for
   the prompt, `HERDR_POLYGLOT_READ_WIDTH` and `HERDR_POLYGLOT_READ_HEIGHT` for the
   replies, each in cells or as a share of the screen such as `80%`. The text fills

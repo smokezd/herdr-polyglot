@@ -197,7 +197,8 @@ description = "read the agent's reply in your language"
 
 It goes through the same service a prompt does. For *Claude Code* and *Codex*
 the replies come from the agent's own session file, one per prompt, without its
-tool calls or its thinking; for any other agent the recent terminal output is
+tool calls or its thinking — but with the questions *Claude Code* asks you and
+the plans it asks you to approve, options numbered as the terminal numbers them; for any other agent the recent terminal output is
 translated as one block. `HERDR_POLYGLOT_READ_REPLIES` says how many of the
 latest replies are shown, and `HERDR_POLYGLOT_READ_CONTEXT` how many before them
 go along so the same thing keeps the same word — *DeepL* takes them as its
