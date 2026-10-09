@@ -125,6 +125,10 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | `HERDR_POLYGLOT_READ_LANGUAGE` | none | Language the agent's replies are [read in](#read-the-agents-reply-in-your-language) |
 | `HERDR_POLYGLOT_READ_REPLIES` | `1` | How many of the latest replies are translated and shown |
 | `HERDR_POLYGLOT_READ_CONTEXT` | `2` | How many replies before those go along as context, unshown |
+| `HERDR_POLYGLOT_WIDTH` | `90` | Width of the prompt popup, in cells or as a share of the screen like `80%` |
+| `HERDR_POLYGLOT_HEIGHT` | `17` | Height of the prompt popup, the same way |
+| `HERDR_POLYGLOT_READ_WIDTH` | `90` | Width of the popup replies are read in |
+| `HERDR_POLYGLOT_READ_HEIGHT` | `32` | Height of the popup replies are read in |
 
 A draft leaves the machine only for a service you named. With no
 `HERDR_POLYGLOT_PROVIDER`, a command means that command and nothing at all means
@@ -199,6 +203,11 @@ latest replies are shown, and `HERDR_POLYGLOT_READ_CONTEXT` how many before them
 go along so the same thing keeps the same word — *DeepL* takes them as its
 unbilled context and *LM Studio* reads them in its prompt; *Google* and a
 command translate each reply on its own. Code stays out, as it does for a prompt.
+
+With *LM Studio* the translation streams in as the model writes it. A model that
+thinks first shows its thinking, faded, while it goes on, and folds it into one
+line — `▸ thought for 8s` — as soon as the answer begins. The view follows the
+end of the text until you scroll away from it. Other services answer all at once.
 
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, `tab` shows the reply as the
 agent wrote it, `ctrl+t` tries again after a failure and `esc` or `q` closes.

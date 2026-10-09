@@ -38,6 +38,10 @@ const (
 	readLangVar  = "HERDR_POLYGLOT_READ_LANGUAGE"
 	readShowVar  = "HERDR_POLYGLOT_READ_REPLIES"
 	readCtxVar   = "HERDR_POLYGLOT_READ_CONTEXT"
+	widthVar     = "HERDR_POLYGLOT_WIDTH"
+	heightVar    = "HERDR_POLYGLOT_HEIGHT"
+	readWideVar  = "HERDR_POLYGLOT_READ_WIDTH"
+	readHighVar  = "HERDR_POLYGLOT_READ_HEIGHT"
 	stateDirVar  = "HERDR_PLUGIN_STATE_DIR"
 	configDirVar = "HERDR_PLUGIN_CONFIG_DIR"
 	binaryVar    = "HERDR_BIN_PATH"
@@ -78,6 +82,15 @@ type Settings struct {
 	// instead of taking a prompt.
 	Reading bool
 	Read    ReadSettings
+	// Prompt is the size of the popup a prompt is written in.
+	Prompt Size
+}
+
+// Size is how big a popup is asked to be. Each side is a number of cells or a
+// share of the screen such as "80%", and nil leaves it to the plugin.
+type Size struct {
+	Width  any
+	Height any
 }
 
 // ReadSettings say what the agent's replies are translated into and how many
@@ -89,6 +102,8 @@ type ReadSettings struct {
 	Language string
 	Replies  int
 	Context  int
+	// Size is the popup's, which wants more room than a prompt's.
+	Size Size
 }
 
 // ModelSettings say which model translates and what to add to what it is sent.
@@ -145,7 +160,9 @@ func Load(getenv func(string) string) (Settings, error) {
 			Language: lookup(readLangVar),
 			Replies:  given.count(readShowVar, defaultReadReplies, 1),
 			Context:  given.count(readCtxVar, defaultReadContext, 0),
+			Size:     Size{Width: given.extent(readWideVar), Height: given.extent(readHighVar)},
 		},
+		Prompt: Size{Width: given.extent(widthVar), Height: given.extent(heightVar)},
 		Options: translation.Options{
 			APIKey:         orDefault(lookup(scopedKeyVar(provider)), lookup(apiKeyVar)),
 			TargetLanguage: orDefault(lookup(languageVar), defaultLanguage),
@@ -221,6 +238,35 @@ func (r *reading) count(variable string, whenUnset, least int) int {
 	}
 	return number
 }
+
+// extent reads one side of a popup: a whole number of cells, or a percentage
+// of the screen, which herdr takes as it is written.
+func (r *reading) extent(variable string) any {
+	value := strings.TrimSpace(r.lookup(variable))
+	if value == "" {
+		return nil
+	}
+
+	if share, isShare := strings.CutSuffix(value, "%"); isShare {
+		percent, err := strconv.Atoi(strings.TrimSpace(share))
+		if err != nil || percent < 1 || percent > 100 {
+			r.refuse(variable, value, "not a share of the screen from 1% to 100%")
+			return nil
+		}
+		return strconv.Itoa(percent) + "%"
+	}
+
+	cells, err := strconv.Atoi(value)
+	if err != nil || cells < minExtent {
+		r.refuse(variable, value, fmt.Sprintf("neither a number of cells from %d up nor a share such as 80%%", minExtent))
+		return nil
+	}
+	return cells
+}
+
+// minExtent is the least either side may be: smaller than this, a popup has
+// no room for its own heading and footer.
+const minExtent = 10
 
 // object reads a JSON object to add to a request. The draft and the way the
 // answer comes back are not the setting's to change: the one is what is being

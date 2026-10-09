@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,7 +37,7 @@ type upperTranslator struct {
 	err      error
 }
 
-func (u *upperTranslator) TranslateWithContext(_ context.Context, text, preceding string) (string, error) {
+func (u *upperTranslator) TranslateReply(_ context.Context, text, preceding string, _ func(overlay.Progress)) (string, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.contexts = append(u.contexts, preceding)
@@ -180,9 +181,90 @@ func TestALongReplyScrolls(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{strings.Join(lines, "\n")}}, &upperTranslator{},
 		overlay.ReaderOptions{Replies: 1})
-	waitForText(t, reader, "LINE", overlay.ScrollThumb)
+	waitForText(t, reader, "THE VERY END", "100%", overlay.ScrollThumb)
+	reader.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	teatest.WaitFor(t, reader.Output(), func(out []byte) bool {
+		return bytes.Contains(out, []byte("LINE")) && !bytes.Contains(out, []byte("THE VERY END"))
+	}, teatest.WithDuration(3*time.Second))
 	reader.Send(tea.KeyMsg{Runes: []rune("G"), Type: tea.KeyRunes})
 	waitForText(t, reader, "THE VERY END", "100%")
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+}
+
+// thinkingTranslator thinks out loud, waits until the test lets it go on, and
+// then writes its answer in two pieces.
+type thinkingTranslator struct {
+	thinking string
+	answer   []string
+	goOn     chan struct{}
+}
+
+func (k *thinkingTranslator) TranslateReply(
+	_ context.Context, _, _ string, progress func(overlay.Progress),
+) (string, error) {
+	progress(overlay.Progress{Thinking: k.thinking})
+	<-k.goOn
+	so := ""
+	for _, piece := range k.answer {
+		so += piece
+		progress(overlay.Progress{Thinking: k.thinking, Text: so, Thought: true})
+	}
+	return so, nil
+}
+
+func TestThinkingIsShownWhileItGoesOnAndFoldsAwayOnceTheAnswerBegins(t *testing.T) {
+	t.Parallel()
+	translator := &thinkingTranslator{
+		thinking: "Considering the word for flaky",
+		answer:   []string{"不稳定的测试", "已修复。"},
+		goOn:     make(chan struct{}),
+	}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"The flaky test is fixed."}}, translator,
+		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "thinking …", "Considering the word for flaky")
+
+	close(translator.goOn)
+	waitForText(t, reader, "不稳定的测试已修复。", "▸ thought for")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	final := reader.FinalModel(t).View()
+	if strings.Contains(final, "Considering") {
+		t.Errorf("the thinking is still spread out after the answer arrived:\n%s", final)
+	}
+}
+
+// streamingTranslator writes its answer one line at a time.
+type streamingTranslator struct{ lines []string }
+
+func (s streamingTranslator) TranslateReply(
+	_ context.Context, _, _ string, progress func(overlay.Progress),
+) (string, error) {
+	so := ""
+	for _, line := range s.lines {
+		so += line + "\n"
+		progress(overlay.Progress{Text: so})
+		time.Sleep(time.Millisecond)
+	}
+	return so, nil
+}
+
+func TestAStreamedAnswerKeepsItsEndInView(t *testing.T) {
+	t.Parallel()
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = "zeile " + strconv.Itoa(i)
+	}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"long"}}, streamingTranslator{lines: lines},
+		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "zeile 59", "100%")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "zeile 0\n") {
+		t.Errorf("the view stayed at the top while the answer grew:\n%s", final)
+	}
 }

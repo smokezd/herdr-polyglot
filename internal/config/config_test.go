@@ -502,3 +502,37 @@ func TestLoadRefusesACountOfRepliesItCannotUse(t *testing.T) {
 		}
 	}
 }
+
+func TestAPopupIsSizedInCellsOrAsAShareOfTheScreen(t *testing.T) {
+	t.Parallel()
+
+	settings, err := config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":      "w1:p3",
+		"HERDR_POLYGLOT_WIDTH":       "120",
+		"HERDR_POLYGLOT_READ_WIDTH":  "80%",
+		"HERDR_POLYGLOT_READ_HEIGHT": " 90 % ",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if want := (config.Size{Width: 120}); settings.Prompt != want {
+		t.Errorf("Prompt is %+v, want %+v", settings.Prompt, want)
+	}
+	if want := (config.Size{Width: "80%", Height: "90%"}); settings.Read.Size != want {
+		t.Errorf("Read.Size is %+v, want %+v", settings.Read.Size, want)
+	}
+}
+
+func TestLoadRefusesAPopupSizeItCannotUse(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"wide", "5", "0%", "150%", "-80"} {
+		_, err := config.Load(envFrom(map[string]string{
+			"HERDR_POLYGLOT_TARGET":     "w1:p3",
+			"HERDR_POLYGLOT_READ_WIDTH": value,
+		}))
+		if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_READ_WIDTH") {
+			t.Errorf("%q: error is %v, want one naming the setting", value, err)
+		}
+	}
+}

@@ -23,8 +23,9 @@ func runReader(ctx context.Context, settings *config.Settings, runner herdr.Exec
 	source := transcript.Resolve(ctx, runner, settings.Target, agentHomes())
 
 	// Protecting is what passes the replies before along to a service that can
-	// be told about them, with their code left out like the reply's own.
-	translator, _ := translation.Protecting(chosen.translator).(overlay.ReplyTranslator)
+	// be told about them, with their code left out like the reply's own, and
+	// what streams the answer from a service that writes it bit by bit.
+	translator := streamingReplies{translation.Protecting(chosen.translator).(translation.StreamingTranslator)}
 
 	language := settings.Read.Language
 	if language == "" {
@@ -82,4 +83,18 @@ func agentHomes() transcript.Places {
 		Claude: in("CLAUDE_CONFIG_DIR", ".claude"),
 		Codex:  in("CODEX_HOME", ".codex"),
 	}
+}
+
+// streamingReplies hands the overlay a translation as it is written, in the
+// overlay's own words.
+type streamingReplies struct {
+	translator translation.StreamingTranslator
+}
+
+func (s streamingReplies) TranslateReply(
+	ctx context.Context, text, preceding string, progress func(overlay.Progress),
+) (string, error) {
+	return s.translator.TranslateStreaming(ctx, text, preceding, func(so translation.Progress) {
+		progress(overlay.Progress{Thinking: so.Thinking, Text: so.Text, Thought: so.Thought})
+	})
 }

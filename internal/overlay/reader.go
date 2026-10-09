@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,10 +16,21 @@ type Replies interface {
 	Latest(ctx context.Context, n int) ([]string, error)
 }
 
+// Progress is a translation as far as it has come: what the service has
+// thought so far, if it thinks out loud, and the translation so far.
+type Progress struct {
+	Thinking string
+	Text     string
+	// Thought says the thinking is over and the translation has begun.
+	Thought bool
+}
+
 // ReplyTranslator translates one reply, told what came before it so the same
-// thing keeps the same word from one reply to the next.
+// thing keeps the same word from one reply to the next. A service that writes
+// its answer bit by bit reports each bit to progress; one that answers all at
+// once never calls it.
 type ReplyTranslator interface {
-	TranslateWithContext(ctx context.Context, text, preceding string) (string, error)
+	TranslateReply(ctx context.Context, text, preceding string, progress func(Progress)) (string, error)
 }
 
 type ReaderOptions struct {
@@ -49,8 +61,8 @@ func ReaderHeight() int {
 	return 30 + PopupBorder
 }
 
-// Reader shows the agent's latest replies, translated, one after another as
-// each is done. Nothing here writes or sends anything.
+// Reader shows the agent's latest replies, translated, one after another and
+// each as it is written. Nothing here writes or sends anything.
 type Reader struct {
 	ctx        context.Context
 	replies    Replies
@@ -60,16 +72,30 @@ type Reader struct {
 	// box does. Only its styles and width are ever set.
 	canvas Model
 
-	loaded     bool
-	shown      []string
-	context    []string
-	translated []string
+	loaded  bool
+	shown   []string
+	context []string
+	results []result
 	// next is the reply being translated, or len(shown) once all are done.
-	next     int
+	next int
+	// attempt tells a try that was given up on from the one that replaced it.
+	attempt  int
 	failure  error
 	original bool
 	from     int
-	pane     tea.WindowSizeMsg
+	// follow keeps the end of the text in view while it is being written, until
+	// the reader scrolls away from it.
+	follow bool
+	pane   tea.WindowSizeMsg
+}
+
+// result is one reply's translation as far as it has come.
+type result struct {
+	text     string
+	thinking string
+	thought  bool
+	// began and ended time the thinking, for the line it collapses into.
+	began, ended time.Time
 }
 
 func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator, options ReaderOptions) Reader {
@@ -85,6 +111,7 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		options:    options,
 		canvas:     canvas,
 		failure:    options.Trouble,
+		follow:     true,
 	}
 }
 
@@ -93,10 +120,17 @@ type (
 		replies []string
 		err     error
 	}
+	// replyProgressMsg carries the channels it came from, so the next piece is
+	// listened for where this one arrived.
+	replyProgressMsg struct {
+		attempt, index int
+		so             Progress
+		pieces, done   <-chan tea.Msg
+	}
 	replyTranslatedMsg struct {
-		index int
-		text  string
-		err   error
+		attempt, index int
+		text           string
+		err            error
 	}
 )
 
@@ -111,8 +145,8 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		r.pane = msg
-		r.canvas.width = min(max(msg.Width-draftFrame, 1), maxContentWidth)
-		r.from = r.clamp(r.from)
+		r.canvas.width = max(msg.Width-draftFrame, 1)
+		r.keepInView()
 		return r, nil
 
 	case tea.KeyMsg:
@@ -125,29 +159,40 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, nil
 		}
 		r.shown, r.context = r.split(msg.replies)
-		r.translated = make([]string, len(r.shown))
+		r.results = make([]result, len(r.shown))
 		if len(r.shown) == 0 || r.options.Trouble != nil {
 			return r, nil
 		}
 		started := r.startTranslating()
 		return r, started
 
+	case replyProgressMsg:
+		if msg.attempt != r.attempt {
+			return r, nil
+		}
+		r.results[msg.index] = r.results[msg.index].advanced(msg.so, time.Now())
+		r.keepInView()
+		return r, listen(msg.pieces, msg.done)
+
 	case replyTranslatedMsg:
-		if errors.Is(msg.err, context.Canceled) || msg.index != r.next {
+		if msg.attempt != r.attempt || errors.Is(msg.err, context.Canceled) {
 			return r, nil
 		}
 		if msg.err != nil {
 			r.failure = msg.err
 			r.canvas.endPulse()
+			r.keepInView()
 			return r, nil
 		}
-		r.translated[msg.index] = msg.text
+		r.results[msg.index] = r.results[msg.index].finished(msg.text, time.Now())
 		r.next++
+		r.keepInView()
 		if r.next == len(r.shown) {
 			r.canvas.endPulse()
 			return r, nil
 		}
-		return r, r.translate(r.next)
+		next := r.translate(r.next)
+		return r, next
 
 	case pulseMsg:
 		if !r.canvas.pulsing || msg.beat <= r.canvas.beat {
@@ -157,6 +202,27 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, beating
 	}
 	return r, nil
+}
+
+func (s result) advanced(so Progress, now time.Time) result {
+	if so.Thinking != "" && s.began.IsZero() {
+		s.began = now
+	}
+	if so.Thought && !s.thought && !s.began.IsZero() {
+		s.ended = now
+	}
+	s.thinking, s.text, s.thought = so.Thinking, so.Text, s.thought || so.Thought
+	return s
+}
+
+// finished takes the whole translation, which has had its code put back and
+// was checked; what streamed in was only ever a preview of it.
+func (s result) finished(text string, now time.Time) result {
+	if !s.began.IsZero() && s.ended.IsZero() {
+		s.ended = now
+	}
+	s.text, s.thought = text, true
+	return s
 }
 
 // split keeps the latest replies to show and the ones before them to send
@@ -171,16 +237,61 @@ func (r Reader) split(replies []string) (shown, before []string) {
 
 func (r *Reader) startTranslating() tea.Cmd {
 	r.failure = nil
+	r.results[r.next] = result{}
 	return tea.Batch(r.translate(r.next), r.canvas.beginPulse())
 }
 
-func (r Reader) translate(index int) tea.Cmd {
+// translate starts a reply off and listens for it. Progress keeps only the
+// newest piece: each one holds everything before it, so one the screen had no
+// time for is not missed.
+func (r *Reader) translate(index int) tea.Cmd {
+	r.attempt++
+	attempt := r.attempt
 	text := r.shown[index]
 	preceding := lastOf(strings.Join(append(append([]string(nil), r.context...), r.shown[:index]...), "\n\n"),
 		maxContext)
+
+	pieces := make(chan tea.Msg, 1)
+	done := make(chan tea.Msg, 1)
+	newest := func(piece tea.Msg) {
+		for {
+			select {
+			case pieces <- piece:
+				return
+			default:
+				select {
+				case <-pieces:
+				default:
+				}
+			}
+		}
+	}
+
+	ctx, translator := r.ctx, r.translator
+	go func() {
+		translated, err := translator.TranslateReply(ctx, text, preceding, func(so Progress) {
+			newest(replyProgressMsg{attempt: attempt, index: index, so: so, pieces: pieces, done: done})
+		})
+		done <- replyTranslatedMsg{attempt: attempt, index: index, text: translated, err: err}
+	}()
+	return listen(pieces, done)
+}
+
+// listen waits for the next piece of a translation, or for its end. The end
+// wins a tie: it holds everything the piece would have said.
+func listen(pieces, done <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		translated, err := r.translator.TranslateWithContext(r.ctx, text, preceding)
-		return replyTranslatedMsg{index: index, text: translated, err: err}
+		select {
+		case end := <-done:
+			return end
+		default:
+		}
+		select {
+		case end := <-done:
+			return end
+		case piece := <-pieces:
+			return piece
+		}
 	}
 }
 
@@ -213,27 +324,50 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.failure == nil || !r.loaded || r.next >= len(r.shown) || r.options.Trouble != nil {
 			return r, nil
 		}
+		r.follow = true
 		started := r.startTranslating()
 		return r, started
 
 	case key.Type == tea.KeyUp, key.String() == "k":
-		r.from = r.clamp(r.from - 1)
+		r.scrollTo(r.from - 1)
 	case key.Type == tea.KeyDown, key.String() == "j":
-		r.from = r.clamp(r.from + 1)
+		r.scrollTo(r.from + 1)
 	case key.Type == tea.KeyPgUp:
-		r.from = r.clamp(r.from - rows)
+		r.scrollTo(r.from - rows)
 	case key.Type == tea.KeyPgDown, key.Type == tea.KeySpace:
-		r.from = r.clamp(r.from + rows)
+		r.scrollTo(r.from + rows)
 	case key.Type == tea.KeyHome, key.String() == "g":
-		r.from = 0
+		r.scrollTo(0)
 	case key.Type == tea.KeyEnd, key.String() == "G":
-		r.from = r.clamp(r.total())
+		r.scrollTo(r.total())
 	}
 	return r, nil
 }
 
+// scrollTo moves the view, and keeps following the text only if the move left
+// its end in view.
+func (r *Reader) scrollTo(row int) {
+	r.from = r.clamp(row)
+	r.follow = r.from >= r.bottom()
+}
+
+// keepInView brings the end of the text into view while it is followed, and
+// otherwise only keeps the view inside a text that may have got shorter: the
+// thinking folds away once the answer begins.
+func (r *Reader) keepInView() {
+	if r.follow {
+		r.from = r.bottom()
+		return
+	}
+	r.from = r.clamp(r.from)
+}
+
+func (r Reader) bottom() int {
+	return max(r.total()-r.rows(), 0)
+}
+
 func (r Reader) clamp(row int) int {
-	return min(max(row, 0), max(r.total()-r.rows(), 0))
+	return min(max(row, 0), r.bottom())
 }
 
 func (r Reader) rows() int {
@@ -244,51 +378,98 @@ func (r Reader) rows() int {
 }
 
 func (r Reader) total() int {
-	return rowsOf(r.text(), r.canvas.contentWidth())
+	return len(r.lines())
 }
 
-// text is every reply on show, one after the other, each in its translation
-// once it has one. The text is plain here: it is wrapped before it is styled.
-func (r Reader) text() string {
-	switch {
-	case !r.loaded:
-		return "reading what the agent said …"
-	case len(r.shown) == 0:
-		return "the agent has not said anything yet"
-	}
-
-	rule := strings.Repeat("─", min(r.canvas.contentWidth(), 24))
-	parts := make([]string, len(r.shown))
-	for index, reply := range r.shown {
-		switch {
-		case r.original, r.options.Trouble != nil:
-			parts[index] = reply
-		case index < r.next:
-			parts[index] = r.translated[index]
-		case index == r.next && r.failure == nil:
-			parts[index] = "translating …"
-		case index == r.next:
-			// What did not translate is still worth reading as it was written.
-			parts[index] = reply
-		default:
-			parts[index] = "…"
+// lines is every reply on show, wrapped to the box and styled line by line:
+// a style opened on one line and closed on another would leak into the border.
+func (r Reader) lines() []string {
+	look := r.canvas.styles
+	width := r.canvas.contentWidth()
+	var lines []string
+	add := func(text string, style lipgloss.Style) {
+		for _, line := range strings.Split(wrapped(text, width), "\n") {
+			lines = append(lines, style.Render(line))
 		}
 	}
-	return strings.Join(parts, "\n\n"+rule+"\n\n")
+
+	switch {
+	case !r.loaded:
+		add("reading what the agent said …", look.placeholder)
+		return lines
+	case len(r.shown) == 0:
+		add("the agent has not said anything yet", look.placeholder)
+		return lines
+	}
+
+	rule := strings.Repeat("─", min(width, 24))
+	for index, reply := range r.shown {
+		if index > 0 {
+			add("", look.text)
+			add(rule, look.mark)
+			add("", look.text)
+		}
+		if r.original || r.options.Trouble != nil {
+			add(reply, look.text)
+			continue
+		}
+		r.addResult(index, reply, add)
+	}
+	return lines
+}
+
+// addResult shows the thinking while it goes on and a line for it once it is
+// over, then the translation as far as it has come.
+func (r Reader) addResult(index int, reply string, add func(string, lipgloss.Style)) {
+	look := r.canvas.styles
+	result := r.results[index]
+	current := index == r.next
+
+	if result.thinking != "" {
+		if result.thought {
+			add("▸ "+thoughtFor(result.ended.Sub(result.began)), look.faded)
+		} else {
+			add("▾ thinking …", look.accent)
+			add(result.thinking, look.faded)
+		}
+		if result.text != "" || (current && r.failure == nil && !result.thought) {
+			add("", look.text)
+		}
+	}
+
+	switch {
+	case result.text != "" && (index < r.next || r.failure == nil):
+		add(result.text, look.text)
+	case current && r.failure != nil:
+		// What did not translate is still worth reading as it was written.
+		add(reply, look.text)
+	case current && result.thinking == "":
+		add("translating …", look.placeholder)
+	case !current:
+		add("…", look.placeholder)
+	}
+}
+
+func thoughtFor(took time.Duration) string {
+	if took < time.Second {
+		return "thought for a moment"
+	}
+	return "thought for " + took.Round(time.Second).String()
 }
 
 func (r Reader) View() string {
 	rows := r.rows()
-	total := r.total()
-	width := r.canvas.contentWidth()
+	lines := r.lines()
+	total := len(lines)
+	from := min(r.from, max(total-rows, 0))
 
-	shown := r.canvas.styles.text.Render(rowsFrom(r.text(), width, r.from, rows))
-	label := howFarThrough(r.from, rows, total)
+	shown := strings.Join(lines[from:min(from+rows, total)], "\n")
+	label := howFarThrough(from, rows, total)
 	if r.original {
 		label = strings.TrimSpace("original " + label)
 	}
 	box := r.canvas.labelled(
-		r.canvas.box(true).Height(rows).Render(r.canvas.scrolled(shown, r.from, rows, total)),
+		r.canvas.box(true).Height(rows).Render(r.canvas.scrolled(shown, from, rows, total)),
 		label, true)
 	line := lipgloss.Width(box)
 

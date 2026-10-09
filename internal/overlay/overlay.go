@@ -79,7 +79,8 @@ const (
 )
 
 const (
-	minContentWidth = 32
+	// maxContentWidth is the width a box starts at, before herdr says how wide
+	// the pane is.
 	maxContentWidth = 96
 	draftHeight     = 6
 	// A prompt is rarely one line, so the draft keeps this many rows and scrolls.
@@ -405,8 +406,9 @@ func (m *Model) refit() {
 
 func (m *Model) resize(contentWidth int) {
 	// Never wider than the pane. A width clamped up past it wraps every line the
-	// popup draws, and an inline renderer then stacks frame on frame.
-	m.width = min(max(contentWidth, 1), maxContentWidth)
+	// popup draws, and an inline renderer then stacks frame on frame. Any
+	// narrower and a popup made wider on purpose would leave its edge empty.
+	m.width = max(contentWidth, 1)
 	// The text area wraps at the width the box shows, or the box wraps again what
 	// the area already wrapped and words drop onto lines nobody asked for.
 	m.draft.SetWidth(m.contentWidth())

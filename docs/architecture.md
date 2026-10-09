@@ -59,6 +59,15 @@ replies and any shown reply ahead of it, the last 4,000 characters. `Protecting`
 passes that along to a `ContextualTranslator` with its code left out, and
 translates the reply alone for a service that is not one.
 
+A service that writes its answer bit by bit also implements
+`StreamingTranslator`, and reports a `Progress` — the thinking so far, the
+translation so far, whether the thinking is over — after every piece. Each
+progress holds everything before it, so the reader keeps only the newest one
+waiting and a slow screen skips pieces without losing any. `Protecting` shows a
+marker as its code as soon as the marker has arrived whole, and checks every
+marker only once the answer is complete. `lmstudio` streams, and allows its
+timeout for each silence rather than for the whole answer.
+
 ## Another translation service
 
 *DeepL* is one implementation of a small interface, not a dependency of the design:

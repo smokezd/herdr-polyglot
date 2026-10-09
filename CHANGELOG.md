@@ -15,6 +15,14 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shows more than one, and `HERDR_POLYGLOT_READ_CONTEXT` (2 by default) sends that
   many replies before them along as context. *Claude Code* and *Codex* replies come
   from their session files; any other agent's from the terminal.
+  With *LM Studio* the translation streams in as it is written, and a model's
+  thinking is shown while it goes on and folded into one line once the answer
+  begins — whether the server sends it in `reasoning_content`, `reasoning` or
+  `<think>` tags.
+- Both popups can be sized: `HERDR_POLYGLOT_WIDTH` and `HERDR_POLYGLOT_HEIGHT` for
+  the prompt, `HERDR_POLYGLOT_READ_WIDTH` and `HERDR_POLYGLOT_READ_HEIGHT` for the
+  replies, each in cells or as a share of the screen such as `80%`. The text fills
+  whatever width it is given.
 
 - A language model on your own machine translates, through
   [LM Studio](https://lmstudio.ai)'s local server or anything else that answers

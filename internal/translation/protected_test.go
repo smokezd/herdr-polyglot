@@ -217,3 +217,62 @@ func TestWhatCameBeforeIsPassedOnWithoutItsCode(t *testing.T) {
 		t.Errorf("code from what came before was sent: %q", sent)
 	}
 }
+
+// streamingSpy hands out its answer a piece at a time.
+type streamingSpy struct {
+	pieces []translation.Progress
+}
+
+func (s *streamingSpy) Translate(context.Context, string) (string, error) { return "", nil }
+
+func (s *streamingSpy) TranslateStreaming(
+	_ context.Context, _, _ string, progress func(translation.Progress),
+) (string, error) {
+	for _, piece := range s.pieces {
+		progress(piece)
+	}
+	return s.pieces[len(s.pieces)-1].Text, nil
+}
+
+func TestAStreamedTranslationShowsTheCodeAsSoonAsItsMarkerArrives(t *testing.T) {
+	t.Parallel()
+	service := &streamingSpy{pieces: []translation.Progress{
+		{Thinking: "hmm"},
+		{Thinking: "hmm", Thought: true, Text: "Führe ⟦0"},
+		{Thinking: "hmm", Thought: true, Text: "Führe ⟦0⟧ aus."},
+	}}
+	translator, streams := translation.Protecting(service).(translation.StreamingTranslator)
+	if !streams {
+		t.Fatal("a protected translator cannot stream")
+	}
+
+	var seen []translation.Progress
+	translated, err := translator.TranslateStreaming(context.Background(), "Run `make qa`.", "",
+		func(so translation.Progress) { seen = append(seen, so) })
+	if err != nil {
+		t.Fatalf("TranslateStreaming returned unexpected error: %v", err)
+	}
+
+	if translated != "Führe `make qa` aus." {
+		t.Errorf("translation is %q, want the code put back", translated)
+	}
+	if len(seen) != 3 || seen[0].Thinking != "hmm" || seen[1].Text != "Führe " ||
+		seen[2].Text != "Führe `make qa` aus." {
+		t.Errorf("progress was %+v, want the thinking, then the text with a half marker held back and a whole one restored", seen)
+	}
+}
+
+func TestAServiceThatCannotStreamAnswersAtOnce(t *testing.T) {
+	t.Parallel()
+	translator := translation.Protecting(&spyTranslator{}).(translation.StreamingTranslator)
+
+	called := false
+	translated, err := translator.TranslateStreaming(context.Background(), "Hallo", "",
+		func(translation.Progress) { called = true })
+	if err != nil || translated != "<Hallo>" {
+		t.Fatalf("translation is %q (%v), want the service's answer", translated, err)
+	}
+	if called {
+		t.Error("progress was reported for a service that does not stream")
+	}
+}
