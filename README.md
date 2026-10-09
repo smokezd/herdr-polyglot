@@ -32,16 +32,21 @@ It rubs off.
 herdr plugin install wazum/herdr-polyglot
 ```
 
-That is enough to use it: with no key the popup is a prompt box that hands what
-you write to the agent, with the keys, the vim bindings and the resumed draft it
-always had. Nothing is translated and nothing leaves the machine.
+That is enough to use it: with nothing configured the draft is translated by the
+model loaded in [LM Studio](https://lmstudio.ai) on this machine, and nothing
+leaves it. Start LM Studio's server with a model loaded —
+[how to set that up](docs/local-translation.md#lm-studio). Without it the footer
+says LM Studio could not be reached, and `HERDR_POLYGLOT_PROVIDER=off` makes the
+popup a plain prompt box instead.
 
-For the translation, put your key in the plugin's own config directory, readable
-only by you — a plain redirect would leave it readable by everyone on the machine:
+To translate through *DeepL*, name it and put your key in the plugin's own config
+directory, readable only by you — a plain redirect would leave it readable by
+everyone on the machine:
 
 ```bash
 ENV_FILE="$(herdr plugin config-dir wazum.polyglot)/.env"
 touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
+echo "HERDR_POLYGLOT_PROVIDER=deepl" >> "$ENV_FILE"
 echo "HERDR_POLYGLOT_API_KEY=your-deepl-key" >> "$ENV_FILE"
 ```
 
@@ -101,10 +106,14 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `HERDR_POLYGLOT_API_KEY` | none | Credentials for the translation service |
-| `HERDR_POLYGLOT_PROVIDER` | picked from what is configured | Which service: `deepl`, `google`, `cmd`, `dry-run` or `off` |
+| `HERDR_POLYGLOT_PROVIDER` | a local one | Which service: `lmstudio`, `deepl`, `google`, `cmd`, `dry-run` or `off` |
 | `HERDR_POLYGLOT_COMMAND` | none | A program that translates, for [local translation](docs/local-translation.md) |
 | `HERDR_POLYGLOT_LANGUAGE` | `EN-US` | Target language |
 | `HERDR_POLYGLOT_ENDPOINT` | the service's own | Override the service endpoint |
+| `HERDR_POLYGLOT_MODEL` | the loaded one | Which model `lmstudio` asks for |
+| `HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA` | none | Added to the instructions `lmstudio` gives the model |
+| `HERDR_POLYGLOT_USER_PROMPT_EXTRA` | none | Added after the draft for `lmstudio`, e.g. `/no_think` |
+| `HERDR_POLYGLOT_REQUEST_EXTRA` | none | A JSON object merged into the `lmstudio` request |
 | `HERDR_POLYGLOT_SUBMIT` | `1` | `0` types the prompt without sending it |
 | `HERDR_POLYGLOT_VIM` | `0` | `1` turns on the [vim bindings](docs/vim.md) |
 | `HERDR_POLYGLOT_LIVE` | `0` | `1` translates while you write |
@@ -114,9 +123,12 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | `HERDR_POLYGLOT_PULSE` | `1` | `0` stops the live circle from breathing |
 | `HERDR_POLYGLOT_LOGO` | `1` | `0` leaves the empty draft box unsigned |
 
-The service is chosen by what you configured: a key means *DeepL*, a command means
-that command, neither means `off` — the plain prompt box. Both at once is refused
-rather than guessed at, and then `HERDR_POLYGLOT_PROVIDER` decides. Asking for a
+A draft leaves the machine only for a service you named. With no
+`HERDR_POLYGLOT_PROVIDER`, a command means that command and nothing at all means
+`lmstudio`, the model in LM Studio. A key is not enough on its own — it may be left
+over — so a key without a named service is refused, and so is a key together with a
+command; `HERDR_POLYGLOT_PROVIDER` then decides. The four model settings apply to
+`lmstudio` only, and are refused with any other service that translates. Asking for a
 service that cannot be built is a case of its own: the popup says what is missing
 and where it belongs, and delivers nothing, so an untranslated draft never reaches
 the agent by accident. To keep keys for several services side by side, scope them by
@@ -144,9 +156,9 @@ as it stands, so writing costs little more than sending —
 draft that came back from an earlier session and for text you paste in, since
 neither is something you asked to have translated; `ctrl+l` turns it on.
 
-**Translation on your own machine.** `HERDR_POLYGLOT_COMMAND` points the plugin at
-a program instead of a service, so a draft need not leave the machine at all —
-[how to set that up](docs/local-translation.md).
+**Translation on your own machine.** By default a model in LM Studio translates,
+and `HERDR_POLYGLOT_COMMAND` points the plugin at any other program instead, so a
+draft need not leave the machine at all — [how to set that up](docs/local-translation.md).
 
 **Code is not translated.** A translation service rewrites code as if it were
 prose: it renames identifiers, translates comments and string literals, and
@@ -160,8 +172,8 @@ motions, edits and counts that make sense inside a text box —
 
 ## What leaves your machine
 
-The draft goes to the translation service, so treat it the way you treat
-anything you paste into a web translator: prompts for a coding agent carry file
+With a service on the network named, the draft goes to it, so treat it the way
+you treat anything you paste into a web translator: prompts for a coding agent carry file
 paths, code and occasionally a secret, and in live mode the draft goes out again
 after every pause in typing.
 

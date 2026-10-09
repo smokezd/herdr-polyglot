@@ -16,7 +16,7 @@ back to the same pane through the *herdr* CLI: `agent prompt` to send it, or
 | --- | --- |
 | `promptflow` | The use case: translate a draft, deliver a prompt. Owns nothing about terminals. |
 | `translation` | The `Translator` and `Provider` ports, the registry of services, the sentence-level cache used for previews, and the decorator that keeps code out of a translation. |
-| `deepl`, `google`, `command` | Services behind those ports: two hosts and one program on the machine. |
+| `deepl`, `google`, `command`, `lmstudio` | Services behind those ports: two hosts, one program on the machine and a language model served on it. |
 | `herdr` | Talking to *herdr*: the CLI runner, the two delivery targets, the socket. |
 | `overlay` | The *Bubble Tea* program: the draft box, the header and footer, the keys. |
 | `vimarea` | A text area with modal editing, used by the overlay. |
@@ -69,16 +69,20 @@ type ContextualTranslator interface {
 }
 ```
 
-`translation.Options` is a superset — `APIKey`, `TargetLanguage`, `Endpoint` —
-and each service takes what applies. That holds while services want the same
+`translation.Options` is a superset — `APIKey`, `TargetLanguage`, `Endpoint`,
+`Command` — and each service takes what applies. That holds while services want the same
 three things. The moment one needs something private to it, a project id or a
 region, that parsing belongs in the composition root rather than in a struct
 every service has to look at: adding fields there makes every provider carry
-what one of them needed.
+what one of them needed. `lmstudio` is that case: its model and prompt settings
+are fields of `lmstudio.Provider`, filled in `services()`, and `chooseService`
+refuses them when another service is chosen.
 
 Add a package that implements `Provider`, register it in `services()` in
 `cmd/herdr-polyglot/main.go`, and it becomes selectable through
-`HERDR_POLYGLOT_PROVIDER`. The first registered service is the default. A
+`HERDR_POLYGLOT_PROVIDER`. The first registered service is the default, and it
+must be one that keeps the draft on the machine: `chosenName` never picks a
+service on the network unless it is named. A
 service that reports what it has spent can implement `UsageReporter`, and the
 header shows the count.
 

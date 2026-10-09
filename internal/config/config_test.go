@@ -376,3 +376,75 @@ func TestADraftLimitThatIsNotANumberIsRefused(t *testing.T) {
 		t.Errorf("Load returned %v, want the unreadable draft limit refused by name", err)
 	}
 }
+
+func TestLoadTakesTheSettingsForALanguageModel(t *testing.T) {
+	t.Parallel()
+
+	settings, err := config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":              "w1:p1",
+		"HERDR_POLYGLOT_MODEL":               "qwen/qwen3-8b",
+		"HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA": "Use British spelling.",
+		"HERDR_POLYGLOT_USER_PROMPT_EXTRA":   "/no_think",
+		"HERDR_POLYGLOT_REQUEST_EXTRA":       `{"max_tokens": 2048, "temperature": 0.2}`,
+	}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+
+	model := settings.Model
+	if model.Name != "qwen/qwen3-8b" {
+		t.Errorf("Name is %q, want the one configured", model.Name)
+	}
+	if model.SystemPromptExtra != "Use British spelling." {
+		t.Errorf("SystemPromptExtra is %q, want the one configured", model.SystemPromptExtra)
+	}
+	if model.UserPromptExtra != "/no_think" {
+		t.Errorf("UserPromptExtra is %q, want the one configured", model.UserPromptExtra)
+	}
+	if model.RequestExtra["max_tokens"] != 2048.0 || model.RequestExtra["temperature"] != 0.2 {
+		t.Errorf("RequestExtra is %v, want the fields configured", model.RequestExtra)
+	}
+}
+
+// The .env reader takes quotes off both ends of a value, which a JSON object
+// written there, quoted or not, must survive.
+func TestARequestExtraInTheDotEnvFileIsReadWhole(t *testing.T) {
+	t.Parallel()
+
+	for _, written := range []string{
+		`{"top_p":0.9,"stop":"x"}`,
+		`'{"top_p":0.9,"stop":"x"}'`,
+	} {
+		settings, err := config.Load(envFrom(map[string]string{
+			"HERDR_POLYGLOT_TARGET":   "w1:p1",
+			"HERDR_PLUGIN_CONFIG_DIR": configDirContaining(t, "HERDR_POLYGLOT_REQUEST_EXTRA="+written+"\n"),
+		}))
+		if err != nil {
+			t.Errorf("%s: Load returned unexpected error: %v", written, err)
+			continue
+		}
+		if settings.Model.RequestExtra["stop"] != "x" {
+			t.Errorf("%s: RequestExtra is %v, want it read whole", written, settings.Model.RequestExtra)
+		}
+	}
+}
+
+func TestARequestExtraThatCannotBeUsedIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, written := range []string{
+		`{"max_tokens": `,
+		`[1, 2]`,
+		`null`,
+		`{"messages": []}`,
+		`{"stream": true}`,
+	} {
+		_, err := config.Load(envFrom(map[string]string{
+			"HERDR_POLYGLOT_TARGET":        "w1:p1",
+			"HERDR_POLYGLOT_REQUEST_EXTRA": written,
+		}))
+		if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_REQUEST_EXTRA") {
+			t.Errorf("%s: Load returned %v, want it refused by name", written, err)
+		}
+	}
+}

@@ -9,15 +9,22 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A language model on your own machine translates, through
+  [LM Studio](https://lmstudio.ai)'s local server or anything else that answers
+  OpenAI-style chat completions: `HERDR_POLYGLOT_PROVIDER=lmstudio`, and it is the
+  default. `HERDR_POLYGLOT_MODEL` picks a model, the loaded one otherwise;
+  `HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA`, `HERDR_POLYGLOT_USER_PROMPT_EXTRA` and
+  `HERDR_POLYGLOT_REQUEST_EXTRA` add to the instructions, to the draft's message and
+  to the request. See [docs/local-translation.md](docs/local-translation.md#lm-studio).
+
 - A translation service can be a program on your own machine:
   `HERDR_POLYGLOT_COMMAND` names a command line, the draft is written to its input
   and its answer is the translation. No key, no account, nothing over the network —
   [translateLocally](https://translatelocally.com) is quick enough for live
   translation. See [docs/local-translation.md](docs/local-translation.md).
-- The plugin works with no API key at all: the popup opens as a prompt box that
-  hands what you write to the agent, with every key, the vim bindings and the
-  resumed draft. Install it, bind it, use it — a key adds the translation later.
-  `HERDR_POLYGLOT_PROVIDER=off` asks for that box with a key configured.
+- `HERDR_POLYGLOT_PROVIDER=off` opens the popup as a prompt box that hands what
+  you write to the agent untranslated, with every key, the vim bindings and the
+  resumed draft.
 - `tab` flips between writing and reading. Reading gives the translation the whole
   popup, scrolled with `↑ ↓ PageUp PageDown` — or `j k g G` with vim bindings on —
   and shows how far down it you are. Any letter, `tab` or `esc` goes back to the
@@ -32,6 +39,10 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A draft leaves the machine only for a service that is named. With nothing
+  configured the model in LM Studio translates, where the popup used to be a plain
+  prompt box — `HERDR_POLYGLOT_PROVIDER=off` asks for that box. A key on its own no
+  longer chooses *DeepL*: set `HERDR_POLYGLOT_PROVIDER=deepl` (or `google`) beside it.
 - A missing or unusable key is said in the popup, naming the file it belongs in,
   instead of the plugin refusing to open.
 

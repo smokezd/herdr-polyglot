@@ -5,6 +5,7 @@ package config
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ const (
 	languageVar  = "HERDR_POLYGLOT_LANGUAGE"
 	endpointVar  = "HERDR_POLYGLOT_ENDPOINT"
 	commandVar   = "HERDR_POLYGLOT_COMMAND"
+	modelVar     = "HERDR_POLYGLOT_MODEL"
+	systemVar    = "HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA"
+	userVar      = "HERDR_POLYGLOT_USER_PROMPT_EXTRA"
+	requestVar   = "HERDR_POLYGLOT_REQUEST_EXTRA"
 	submitVar    = "HERDR_POLYGLOT_SUBMIT"
 	vimVar       = "HERDR_POLYGLOT_VIM"
 	liveVar      = "HERDR_POLYGLOT_LIVE"
@@ -41,8 +46,11 @@ const (
 type Settings struct {
 	Target string
 	// Provider names the translation service; empty means the default.
-	Provider   string
-	Options    translation.Options
+	Provider string
+	Options  translation.Options
+	// Model is only for a service that is a language model, so it stays out of
+	// the options every service is handed.
+	Model      ModelSettings
 	ConfigFile string
 	// StateDir is where an unfinished prompt is kept between sessions.
 	StateDir    string
@@ -55,6 +63,15 @@ type Settings struct {
 	Pulse       bool
 	Logo        bool
 	MaxDraft    int
+}
+
+// ModelSettings say which model translates and what to add to what it is sent.
+// Empty means the service's own choice.
+type ModelSettings struct {
+	Name              string
+	SystemPromptExtra string
+	UserPromptExtra   string
+	RequestExtra      map[string]any
 }
 
 // The environment wins over the .env file, so a one-off invocation can
@@ -103,6 +120,12 @@ func Load(getenv func(string) string) (Settings, error) {
 			Endpoint:       lookup(endpointVar),
 			Command:        lookup(commandVar),
 		},
+		Model: ModelSettings{
+			Name:              lookup(modelVar),
+			SystemPromptExtra: lookup(systemVar),
+			UserPromptExtra:   lookup(userVar),
+			RequestExtra:      given.object(requestVar),
+		},
 	}
 
 	if given.err != nil {
@@ -149,6 +172,29 @@ func (r *reading) number(variable string) int {
 		return 0
 	}
 	return number
+}
+
+// object reads a JSON object to add to a request. The draft and the way the
+// answer comes back are not the setting's to change: the one is what is being
+// translated, the other is what the answer is read from.
+func (r *reading) object(variable string) map[string]any {
+	value := strings.TrimSpace(r.lookup(variable))
+	if value == "" {
+		return nil
+	}
+
+	var object map[string]any
+	if err := json.Unmarshal([]byte(value), &object); err != nil || object == nil {
+		r.refuse(variable, value, "not a JSON object")
+		return nil
+	}
+	for _, reserved := range []string{"messages", "stream"} {
+		if _, given := object[reserved]; given {
+			r.refuse(variable, value, "setting "+reserved+", which is not the setting's to change")
+			return nil
+		}
+	}
+	return object
 }
 
 func (r *reading) refuse(variable, value, why string) {

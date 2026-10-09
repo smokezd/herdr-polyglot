@@ -9,17 +9,27 @@ import (
 	"github.com/wazum/herdr-polyglot/internal/translation"
 )
 
-func TestWithoutAKeyThePopupStillOpensAsAPlainDraftBox(t *testing.T) {
+// With nothing configured the draft goes no further than the machine: to the
+// model loaded in LM Studio.
+func TestWithNothingConfiguredTheLocalModelTranslates(t *testing.T) {
 	chosen := chooseService(&config.Settings{})
 
-	if chosen.name != "off" {
-		t.Errorf("without a key the service is %q, want it off", chosen.name)
+	if chosen.name != "lmstudio" {
+		t.Errorf("with nothing configured the service is %q, want lmstudio", chosen.name)
 	}
 	if chosen.trouble != nil {
-		t.Errorf("without a key there is trouble to report: %v", chosen.trouble)
+		t.Errorf("with nothing configured there is trouble to report: %v", chosen.trouble)
 	}
+	if !chosen.translates {
+		t.Error("with nothing configured the popup does not claim to translate")
+	}
+}
+
+func TestThePlainDraftBoxIsThereWhenAskedFor(t *testing.T) {
+	chosen := chooseService(&config.Settings{Provider: "off"})
+
 	if chosen.translates {
-		t.Error("without a key the popup claims it translates")
+		t.Error("with translation off the popup claims it translates")
 	}
 
 	written := "Bitte behebe den fehlschlagenden Test"
@@ -32,19 +42,79 @@ func TestWithoutAKeyThePopupStillOpensAsAPlainDraftBox(t *testing.T) {
 	}
 }
 
-func TestAKeyOnItsOwnPicksTheDefaultService(t *testing.T) {
+// A key may be left over from before, and a draft sent on the strength of it
+// would reach a service nobody asked for this time.
+func TestAKeyOnItsOwnIsNotEnoughToSendTheDraftAway(t *testing.T) {
 	chosen := chooseService(&config.Settings{
 		Options: translation.Options{APIKey: "key-123", TargetLanguage: "EN-US"},
 	})
 
-	if chosen.name != "deepl" {
-		t.Errorf("with a key the service is %q, want the default", chosen.name)
+	if chosen.trouble == nil {
+		t.Fatal("a key on its own chose a service")
 	}
-	if !chosen.translates {
-		t.Error("with a key the popup does not claim to translate")
+	if !strings.Contains(chosen.trouble.Error(), "HERDR_POLYGLOT_PROVIDER") {
+		t.Errorf("the trouble is %v, want it to say which setting decides", chosen.trouble)
+	}
+	if _, err := chosen.translator.Translate(context.Background(), "Bitte behebe es"); err == nil {
+		t.Error("something was translated with a key nobody named a service for")
+	}
+}
+
+func TestANamedServiceUsesItsKey(t *testing.T) {
+	chosen := chooseService(&config.Settings{
+		Provider: "deepl",
+		Options:  translation.Options{APIKey: "key-123", TargetLanguage: "EN-US"},
+	})
+
+	if chosen.name != "deepl" {
+		t.Errorf("the service is %q, want the one named", chosen.name)
 	}
 	if chosen.trouble != nil {
-		t.Errorf("with a key there is trouble to report: %v", chosen.trouble)
+		t.Errorf("a named service with its key reports trouble: %v", chosen.trouble)
+	}
+}
+
+// A model setting means nothing to a service that is not a model, and quietly
+// ignoring it would leave someone wondering why their model never changed.
+func TestModelSettingsForAnotherServiceAreRefused(t *testing.T) {
+	for name, model := range map[string]config.ModelSettings{
+		"HERDR_POLYGLOT_MODEL":               {Name: "qwen"},
+		"HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA": {SystemPromptExtra: "British spelling"},
+		"HERDR_POLYGLOT_USER_PROMPT_EXTRA":   {UserPromptExtra: "/no_think"},
+		"HERDR_POLYGLOT_REQUEST_EXTRA":       {RequestExtra: map[string]any{"top_p": 0.9}},
+	} {
+		chosen := chooseService(&config.Settings{
+			Provider: "deepl",
+			Options:  translation.Options{APIKey: "key-123"},
+			Model:    model,
+		})
+
+		if chosen.trouble == nil || !strings.Contains(chosen.trouble.Error(), name) {
+			t.Errorf("%s with deepl gave trouble %v, want it refused by name", name, chosen.trouble)
+		}
+	}
+}
+
+func TestModelSettingsWaitWhileTranslationIsOff(t *testing.T) {
+	for _, name := range []string{"off", "dry-run"} {
+		chosen := chooseService(&config.Settings{
+			Provider: name,
+			Model:    config.ModelSettings{Name: "qwen", UserPromptExtra: "/no_think"},
+		})
+
+		if chosen.trouble != nil {
+			t.Errorf("model settings with %s gave trouble %v, want them left alone", name, chosen.trouble)
+		}
+	}
+}
+
+func TestModelSettingsAreTakenByTheLocalModel(t *testing.T) {
+	chosen := chooseService(&config.Settings{
+		Model: config.ModelSettings{Name: "qwen", UserPromptExtra: "/no_think"},
+	})
+
+	if chosen.name != "lmstudio" || chosen.trouble != nil {
+		t.Errorf("model settings chose %q with trouble %v, want lmstudio without", chosen.name, chosen.trouble)
 	}
 }
 

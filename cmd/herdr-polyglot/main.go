@@ -18,6 +18,7 @@ import (
 	"github.com/wazum/herdr-polyglot/internal/draft"
 	"github.com/wazum/herdr-polyglot/internal/google"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
+	"github.com/wazum/herdr-polyglot/internal/lmstudio"
 	"github.com/wazum/herdr-polyglot/internal/overlay"
 	"github.com/wazum/herdr-polyglot/internal/promptflow"
 	"github.com/wazum/herdr-polyglot/internal/translation"
@@ -46,10 +47,17 @@ func main() {
 	}
 }
 
-// services lists the translation services this build offers. The first one is
-// the default; adding another service means adding it here.
-func services() *translation.Registry {
+// services lists the translation services this build offers; adding another
+// service means adding it here. The first one is the default, and it must be one
+// that keeps the draft on the machine.
+func services(model config.ModelSettings) *translation.Registry {
 	return translation.NewRegistry(
+		lmstudio.Provider{
+			Model:             model.Name,
+			SystemPromptExtra: model.SystemPromptExtra,
+			UserPromptExtra:   model.UserPromptExtra,
+			RequestExtra:      model.RequestExtra,
+		},
 		deepl.Provider{},
 		google.Provider{},
 		command.Provider{},
