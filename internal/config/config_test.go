@@ -536,3 +536,81 @@ func TestLoadRefusesAPopupSizeItCannotUse(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTakesTheLMStudioHostsInTheOrderWritten(t *testing.T) {
+	t.Parallel()
+
+	settings, err := config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":                   "w1:p1",
+		"HERDR_POLYGLOT_MODEL":                    "qwen/qwen3-8b",
+		"HERDR_POLYGLOT_API_KEY":                  "shared",
+		"HERDR_POLYGLOT_LMSTUDIO_HOSTS":           "laptop=http://localhost:1234, gpu-box=http://192.168.1.20:1234/v1/chat/completions",
+		"HERDR_POLYGLOT_LMSTUDIO_GPU_BOX_MODEL":   "qwen3-32b",
+		"HERDR_POLYGLOT_LMSTUDIO_GPU_BOX_API_KEY": "gpu-key",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+
+	want := []config.Host{
+		{Name: "laptop", Base: "http://localhost:1234", Model: "qwen/qwen3-8b", APIKey: "shared"},
+		{Name: "gpu-box", Base: "http://192.168.1.20:1234", Model: "qwen3-32b", APIKey: "gpu-key"},
+	}
+	if len(settings.Hosts) != len(want) {
+		t.Fatalf("Hosts is %+v, want %+v", settings.Hosts, want)
+	}
+	for i := range want {
+		if settings.Hosts[i] != want[i] {
+			t.Errorf("Hosts[%d] is %+v, want %+v", i, settings.Hosts[i], want[i])
+		}
+	}
+}
+
+func TestWithoutLMStudioHostsThereAreNone(t *testing.T) {
+	t.Parallel()
+
+	settings, err := config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":   "w1:p1",
+		"HERDR_POLYGLOT_ENDPOINT": "http://localhost:1234/v1/chat/completions",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if len(settings.Hosts) != 0 {
+		t.Errorf("Hosts is %+v, want none", settings.Hosts)
+	}
+}
+
+func TestLMStudioHostsThatCannotBeUsedAreRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, written := range []string{
+		"laptop",
+		"=http://localhost:1234",
+		"laptop=",
+		"laptop=localhost:1234",
+		"laptop=ftp://localhost:1234",
+		"laptop=http://localhost:1234,laptop=http://localhost:4321",
+	} {
+		_, err := config.Load(envFrom(map[string]string{
+			"HERDR_POLYGLOT_TARGET":         "w1:p1",
+			"HERDR_POLYGLOT_LMSTUDIO_HOSTS": written,
+		}))
+		if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_LMSTUDIO_HOSTS") {
+			t.Errorf("%s: Load returned %v, want it refused by name", written, err)
+		}
+	}
+}
+
+func TestLMStudioHostsAndAnEndpointTogetherAreRefused(t *testing.T) {
+	t.Parallel()
+
+	_, err := config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":         "w1:p1",
+		"HERDR_POLYGLOT_ENDPOINT":       "http://localhost:1234/v1/chat/completions",
+		"HERDR_POLYGLOT_LMSTUDIO_HOSTS": "laptop=http://localhost:1234",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_ENDPOINT") {
+		t.Errorf("Load returned %v, want the endpoint named as the one to move", err)
+	}
+}

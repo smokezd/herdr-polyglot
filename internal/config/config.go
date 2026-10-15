@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,6 +27,7 @@ const (
 	systemVar    = "HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA"
 	userVar      = "HERDR_POLYGLOT_USER_PROMPT_EXTRA"
 	requestVar   = "HERDR_POLYGLOT_REQUEST_EXTRA"
+	hostsVar     = "HERDR_POLYGLOT_LMSTUDIO_HOSTS"
 	submitVar    = "HERDR_POLYGLOT_SUBMIT"
 	vimVar       = "HERDR_POLYGLOT_VIM"
 	liveVar      = "HERDR_POLYGLOT_LIVE"
@@ -65,7 +67,10 @@ type Settings struct {
 	Options  translation.Options
 	// Model is only for a service that is a language model, so it stays out of
 	// the options every service is handed.
-	Model      ModelSettings
+	Model ModelSettings
+	// Hosts are the machines LM Studio runs on, the first the default. None means
+	// the one endpoint, or this machine.
+	Hosts      []Host
 	ConfigFile string
 	// StateDir is where an unfinished prompt is kept between sessions.
 	StateDir    string
@@ -113,6 +118,16 @@ type ModelSettings struct {
 	SystemPromptExtra string
 	UserPromptExtra   string
 	RequestExtra      map[string]any
+}
+
+// Host is one machine LM Studio answers on. Base is where its server is, without
+// the path to the chat completions, which the service adds. Model and APIKey are
+// the host's own, or else the ones given for every host.
+type Host struct {
+	Name   string
+	Base   string
+	Model  string
+	APIKey string
 }
 
 // The environment wins over the .env file, so a one-off invocation can
@@ -175,6 +190,12 @@ func Load(getenv func(string) string) (Settings, error) {
 			UserPromptExtra:   lookup(userVar),
 			RequestExtra:      given.object(requestVar),
 		},
+	}
+
+	settings.Hosts = given.hosts(settings.Model.Name, settings.Options.APIKey)
+	if len(settings.Hosts) > 0 && settings.Options.Endpoint != "" {
+		given.refuse(endpointVar, settings.Options.Endpoint,
+			"set along with "+hostsVar+": name it there as one of the hosts instead")
 	}
 
 	if given.err != nil {
@@ -291,6 +312,53 @@ func (r *reading) object(variable string) map[string]any {
 	return object
 }
 
+// hosts reads the LM Studio machines as name=url pairs. A pasted chat
+// completions URL is taken back to where the server is, which is what the
+// picker asks for the models it has loaded.
+func (r *reading) hosts(model, apiKey string) []Host {
+	value := strings.TrimSpace(r.lookup(hostsVar))
+	if value == "" {
+		return nil
+	}
+
+	var hosts []Host
+	seen := map[string]bool{}
+	for _, entry := range strings.Split(value, ",") {
+		name, address, _ := strings.Cut(strings.TrimSpace(entry), "=")
+		name, address = strings.TrimSpace(name), strings.TrimSpace(address)
+		parsed, err := url.Parse(address)
+		switch {
+		case name == "" || address == "":
+			r.refuse(hostsVar, value, "not a list of name=url pairs such as laptop=http://localhost:1234")
+			return nil
+		case err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "":
+			r.refuse(hostsVar, value, "naming "+name+" at "+address+", which is not an http or https URL")
+			return nil
+		case seen[name]:
+			r.refuse(hostsVar, value, "naming "+name+" twice")
+			return nil
+		}
+		seen[name] = true
+
+		scoped := "HERDR_POLYGLOT_LMSTUDIO_" + scope(name) + "_"
+		hosts = append(hosts, Host{
+			Name:   name,
+			Base:   baseOf(address),
+			Model:  orDefault(r.lookup(scoped+"MODEL"), model),
+			APIKey: orDefault(r.lookup(scoped+"API_KEY"), apiKey),
+		})
+	}
+	return hosts
+}
+
+func baseOf(address string) string {
+	base := strings.TrimRight(address, "/")
+	for _, path := range []string{"/chat/completions", "/v1"} {
+		base = strings.TrimSuffix(base, path)
+	}
+	return base
+}
+
 func (r *reading) refuse(variable, value, why string) {
 	if r.err == nil {
 		r.err = fmt.Errorf("%s is %q, which is %s", variable, value, why)
@@ -302,8 +370,12 @@ func scopedKeyVar(provider string) string {
 	if provider == "" {
 		return ""
 	}
-	scope := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(provider))
-	return "HERDR_POLYGLOT_" + scope + "_API_KEY"
+	return "HERDR_POLYGLOT_" + scope(provider) + "_API_KEY"
+}
+
+// scope turns a name into the part of a variable that belongs to it.
+func scope(name string) string {
+	return strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(name))
 }
 
 func orDefault(value, fallback string) string {

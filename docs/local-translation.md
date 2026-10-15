@@ -49,6 +49,36 @@ Anything else that answers OpenAI-style chat completions — *Ollama*,
 its `/v1/chat/completions` URL. A server elsewhere on your network is allowed over
 plain `http`; with a key set it must be `https` or on this machine.
 
+### More than one machine
+
+LM Studio on a laptop and on a bigger machine on the network can both be named,
+the first being the one used until another is picked:
+
+```bash
+echo 'HERDR_POLYGLOT_LMSTUDIO_HOSTS=laptop=http://localhost:1234,gpu=http://192.168.1.20:1234' >> "$ENV_FILE"
+echo 'HERDR_POLYGLOT_LMSTUDIO_GPU_MODEL=qwen3-32b' >> "$ENV_FILE"
+```
+
+Each is the address LM Studio shows, without `/v1/chat/completions`; a pasted one
+is taken back to it. `HERDR_POLYGLOT_LMSTUDIO_<NAME>_MODEL` and
+`HERDR_POLYGLOT_LMSTUDIO_<NAME>_API_KEY` belong to one host — the name upper-cased,
+`-` and `.` written `_` — and fall back to `HERDR_POLYGLOT_MODEL` and the key given
+for every host. The prompt and request settings above are the same for all of
+them. `HERDR_POLYGLOT_ENDPOINT` cannot be set as well: name it as a host instead.
+
+`ctrl+o`, in the prompt popup or while reading a reply, lists the machines and
+asks each which models it has, so you see which are up before you pick:
+
+```
+› ● laptop  http://localhost:1234      ✓ gemma-3 (loaded)
+    gpu     http://192.168.1.20:1234   ✗ unreachable
+```
+
+`enter` uses the one under the cursor from then on — in this popup, translating
+again what was on show, and in every popup after it. A machine that is down can
+still be picked; the next translation says so. A reader pane already open keeps
+the machine it opened with until it is opened again.
+
 The first request after LM Studio starts loads the model, which can take most of a
 minute. If the footer says `LM Studio did not answer in time — is the model still
 loading?`, wait for it and press `ctrl+t`. Once loaded, a short prompt comes back in

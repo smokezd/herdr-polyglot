@@ -12,6 +12,9 @@ import (
 )
 
 func (m Model) View() string {
+	if m.picker.open {
+		return m.pickerView()
+	}
 	if m.reading {
 		return m.readingView()
 	}
@@ -234,6 +237,9 @@ func (m Model) keyHints(room int) string {
 		shown = append(shown,
 			[2]string{"ctrl+r", "→ " + m.otherDestination()},
 			[2]string{"ctrl+l", "live"})
+		if choosable(m.options.Hosts) {
+			shown = append(shown, [2]string{"ctrl+o", "host"})
+		}
 	} else {
 		shown = append(shown, [2]string{"ctrl+r", "→ " + m.otherDestination()})
 	}

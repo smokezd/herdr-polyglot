@@ -14,6 +14,7 @@ import (
 	"github.com/wazum/herdr-polyglot/internal/config"
 	"github.com/wazum/herdr-polyglot/internal/draft"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
+	"github.com/wazum/herdr-polyglot/internal/lmstudio"
 	"github.com/wazum/herdr-polyglot/internal/overlay"
 	"github.com/wazum/herdr-polyglot/internal/readstate"
 	"github.com/wazum/herdr-polyglot/internal/transcript"
@@ -24,8 +25,8 @@ import (
 // they are read in, in a popup over the agent or a pane beside it. It keeps no
 // draft and delivers nothing. A reader hidden or moved hands on what it shows,
 // and the one that takes over shows it again without asking the service twice.
-func runReader(ctx context.Context, settings *config.Settings, runner herdr.ExecRunner) error {
-	chosen := chooseReplyService(settings)
+func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, runner herdr.ExecRunner) error {
+	chosen := chooseReplyService(hosts.applied())
 	store := readstate.New(settings.StateDir)
 	agent := settings.Target
 	place := readstate.Popup
@@ -45,7 +46,7 @@ func runReader(ctx context.Context, settings *config.Settings, runner herdr.Exec
 		return transcript.Resolve(ctx, runner, agent, agentHomes())
 	}}
 	options := overlay.ReaderOptions{
-		Service:  chosen.name,
+		Service:  hosts.label(chosen.name),
 		Language: orDefault(settings.Read.Language, "?"),
 		Replies:  settings.Read.Replies,
 		Context:  settings.Read.Context,
@@ -60,6 +61,14 @@ func runReader(ctx context.Context, settings *config.Settings, runner herdr.Exec
 			return herdrReaders{store: store}.open(ctx, agent, place.Other(), resumeHandoff)
 		},
 	}
+	if chosen.name == (lmstudio.Provider{}).Name() {
+		options.Hosts = hosts
+		options.ChooseHost = func(name string) (overlay.ReplyTranslator, string, error) {
+			hosts.choose(name)
+			chosen := chooseReplyService(hosts.applied())
+			return replyTranslator(chosen.translator), hosts.label(chosen.name), chosen.trouble
+		}
+	}
 	if place == readstate.Popup {
 		options.Hide = func(saved overlay.Snapshot) error { return keep(store.Hidden(agent), &saved) }
 	}
@@ -68,11 +77,8 @@ func runReader(ctx context.Context, settings *config.Settings, runner herdr.Exec
 		options.Source, options.Whole = source.Name(), source.Whole()
 	}
 
-	// Protecting is what passes the replies before along to a service that can
-	// be told about them, with their code left out like the reply's own, and
-	// what streams the answer from a service that writes it bit by bit.
-	translator := streamingReplies{translation.Protecting(chosen.translator).(translation.StreamingTranslator)}
-	program := tea.NewProgram(overlay.NewReader(ctx, found, translator, options), tea.WithContext(ctx))
+	program := tea.NewProgram(
+		overlay.NewReader(ctx, found, replyTranslator(chosen.translator), options), tea.WithContext(ctx))
 
 	// A key pressed in herdr reaches the reader through its line: translate
 	// again, hide, move.
@@ -170,6 +176,14 @@ func agentHomes() transcript.Places {
 		Claude: in("CLAUDE_CONFIG_DIR", ".claude"),
 		Codex:  in("CODEX_HOME", ".codex"),
 	}
+}
+
+// replyTranslator puts translator in the overlay's words. Protecting is what
+// passes the replies before along to a service that can be told about them,
+// with their code left out like the reply's own, and what streams the answer
+// from a service that writes it bit by bit.
+func replyTranslator(translator translation.Translator) overlay.ReplyTranslator {
+	return streamingReplies{translation.Protecting(translator).(translation.StreamingTranslator)}
 }
 
 // streamingReplies hands the overlay a translation as it is written, in the

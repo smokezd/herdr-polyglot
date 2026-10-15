@@ -56,6 +56,11 @@ type Options struct {
 	// Drafts keeps an unfinished prompt between sessions. Without one the draft
 	// simply goes when the popup closes.
 	Drafts Drafts
+	// Hosts are the machines the service can translate on, and ChooseHost
+	// switches to one: the way out through it, the service's new name, and why
+	// it cannot translate, if it cannot. Without hosts ctrl+o does nothing.
+	Hosts      Hosts
+	ChooseHost func(name string) (Prompter, string, error)
 }
 
 // Drafts is the pane's own unfinished prompt.
@@ -180,6 +185,8 @@ type Model struct {
 	pulsing         bool
 	translationDone bool
 	pane            tea.WindowSizeMsg
+	// picker is the list of hosts ctrl+o opens over everything else.
+	picker hostPicker
 }
 
 func New(ctx context.Context, prompter Prompter, options Options) Model {
@@ -295,6 +302,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case hostProbedMsg:
+		m.picker = m.picker.probed(msg)
+		return m, nil
 
 	case usageMsg:
 		m.spent, m.spentKnown = msg.spent, msg.reported && msg.spent.Limit > 0
@@ -483,6 +494,12 @@ func (m Model) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Type == tea.KeyCtrlC:
 		return m, tea.Quit
+
+	case m.picker.open:
+		return m.pickKey(key)
+
+	case key.Type == tea.KeyCtrlO && m.options.Hosts != nil:
+		return m.openPicker()
 
 	// Tab flips between writing and reading the translation.
 	case key.Type == tea.KeyTab:

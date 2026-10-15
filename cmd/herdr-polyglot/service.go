@@ -49,7 +49,7 @@ func chooseReplyService(settings *config.Settings) service {
 func pick(settings *config.Settings, registry *translation.Registry) service {
 	name, err := chosenName(settings)
 	if err == nil {
-		err = onlyForModels(name, settings.Model)
+		err = onlyForModels(name, settings)
 	}
 	if err == nil {
 		var translator translation.Translator
@@ -108,13 +108,15 @@ func chosenName(settings *config.Settings) (string, error) {
 // ignoring them would leave someone wondering why their model never changed.
 // Turning translation off, or trying it dry, is not choosing another service:
 // the settings wait for the model to be used again.
-func onlyForModels(name string, model config.ModelSettings) error {
+func onlyForModels(name string, settings *config.Settings) error {
 	switch name {
 	case lmstudio.Provider{}.Name(), translation.OffProvider{}.Name(), translation.DryRunProvider{}.Name():
 		return nil
 	}
 
+	model := settings.Model
 	given := map[string]bool{
+		"HERDR_POLYGLOT_LMSTUDIO_HOSTS":      len(settings.Hosts) > 0,
 		"HERDR_POLYGLOT_MODEL":               model.Name != "",
 		"HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA": model.SystemPromptExtra != "",
 		"HERDR_POLYGLOT_USER_PROMPT_EXTRA":   model.UserPromptExtra != "",

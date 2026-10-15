@@ -88,6 +88,7 @@ while you write, so one keybinding is enough.
 | `ctrl+l` | turn live translation on or off for this prompt |
 | `ctrl+t` | translate what is there now, or try again after a translation failed |
 | `tab` | read the translation across the whole popup, and back |
+| `ctrl+o` | pick which [LM Studio machine](docs/local-translation.md#more-than-one-machine) translates |
 | `ctrl+u` | throw the draft away, as it clears a line in a shell |
 | `esc` | close — with vim bindings on, first to normal mode, then close |
 | `ctrl+c` | close, always |
@@ -111,6 +112,7 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | `HERDR_POLYGLOT_LANGUAGE` | `EN-US` | Target language |
 | `HERDR_POLYGLOT_ENDPOINT` | the service's own | Override the service endpoint |
 | `HERDR_POLYGLOT_MODEL` | the loaded one | Which model `lmstudio` asks for |
+| `HERDR_POLYGLOT_LMSTUDIO_HOSTS` | none | [Several machines](docs/local-translation.md#more-than-one-machine) running LM Studio, as `name=url,…` |
 | `HERDR_POLYGLOT_SYSTEM_PROMPT_EXTRA` | none | Added to the instructions `lmstudio` gives the model |
 | `HERDR_POLYGLOT_USER_PROMPT_EXTRA` | none | Added after the draft for `lmstudio`, e.g. `/no_think` |
 | `HERDR_POLYGLOT_REQUEST_EXTRA` | none | A JSON object merged into the `lmstudio` request |

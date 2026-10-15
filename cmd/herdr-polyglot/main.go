@@ -80,46 +80,38 @@ func run(ctx context.Context) error {
 	defer stopListening()
 
 	runner := herdr.NewExecRunner(settings.HerdrBinary)
+	hosts := newHosts(&settings)
 	if settings.Reading {
-		return runReader(ctx, &settings, runner)
+		return runReader(ctx, &settings, hosts, runner)
 	}
 
-	chosen := chooseService(&settings)
-	translator := chosen.translator
-	flowOptions := []promptflow.Option{
-		// Writing means translating the same draft again and again, so a preview
-		// pays for each sentence once. Live translation can be switched on at any
-		// time, so this is set up whether it starts on or off. Protecting sits
-		// outside the cache, so a fenced block is taken out before the draft is
-		// split into sentences.
-		promptflow.WithPreviewTranslator(
-			translation.Protecting(translation.Segmented(translator))),
+	chosen := chooseService(hosts.applied())
+	options := overlay.Options{
+		Service:        hosts.label(chosen.name),
+		WithoutService: !chosen.translates,
+		Trouble:        chosen.trouble,
+		Language:       settings.Options.TargetLanguage,
+		Review:         !settings.Submit,
+		Vim:            settings.Vim,
+		Live:           settings.Live,
+		Confirm:        settings.Confirm,
+		Pulse:          settings.Pulse,
+		Logo:           settings.Logo,
+		MaxDraft:       settings.MaxDraft,
+
+		Drafts: drafts(settings.KeepDraft, settings.StateDir, settings.Target),
 	}
-	if spending, err := spendingOf(translator); err == nil {
-		flowOptions = append(flowOptions, promptflow.WithUsageReporter(spending))
+	if chosen.name == (lmstudio.Provider{}).Name() {
+		options.Hosts = hosts
+		options.ChooseHost = func(name string) (overlay.Prompter, string, error) {
+			hosts.choose(name)
+			chosen := chooseService(hosts.applied())
+			return newFlow(chosen.translator, &settings, runner), hosts.label(chosen.name), chosen.trouble
+		}
 	}
 
-	flow := promptflow.New(translation.Protecting(translator),
-		herdr.NewAgentPrompt(runner, settings.Target),
-		herdr.NewPaneText(runner, settings.Target),
-		flowOptions...,
-	)
 	program := tea.NewProgram(
-		overlay.New(ctx, flow, overlay.Options{
-			Service:        chosen.name,
-			WithoutService: !chosen.translates,
-			Trouble:        chosen.trouble,
-			Language:       settings.Options.TargetLanguage,
-			Review:         !settings.Submit,
-			Vim:            settings.Vim,
-			Live:           settings.Live,
-			Confirm:        settings.Confirm,
-			Pulse:          settings.Pulse,
-			Logo:           settings.Logo,
-			MaxDraft:       settings.MaxDraft,
-
-			Drafts: drafts(settings.KeepDraft, settings.StateDir, settings.Target),
-		}),
+		overlay.New(ctx, newFlow(chosen.translator, &settings, runner), options),
 		tea.WithContext(ctx),
 		// No alternate screen: entering it clears the pane to the terminal's own
 		// background, which then differs from the popup herdr painted around it.
@@ -136,6 +128,28 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("running overlay: %w", err)
 	}
 	return nil
+}
+
+// newFlow is the way a draft goes out through translator to the agent.
+func newFlow(translator translation.Translator, settings *config.Settings, runner herdr.ExecRunner) *promptflow.Flow {
+	flowOptions := []promptflow.Option{
+		// Writing means translating the same draft again and again, so a preview
+		// pays for each sentence once. Live translation can be switched on at any
+		// time, so this is set up whether it starts on or off. Protecting sits
+		// outside the cache, so a fenced block is taken out before the draft is
+		// split into sentences.
+		promptflow.WithPreviewTranslator(
+			translation.Protecting(translation.Segmented(translator))),
+	}
+	if spending, err := spendingOf(translator); err == nil {
+		flowOptions = append(flowOptions, promptflow.WithUsageReporter(spending))
+	}
+
+	return promptflow.New(translation.Protecting(translator),
+		herdr.NewAgentPrompt(runner, settings.Target),
+		herdr.NewPaneText(runner, settings.Target),
+		flowOptions...,
+	)
 }
 
 // spendingOf asks the service what it has spent, in the application's words. Only

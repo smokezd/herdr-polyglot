@@ -60,6 +60,10 @@ type ReaderOptions struct {
 	// nothing.
 	Hide func(Snapshot) error
 	Move func(Snapshot) error
+	// Hosts and ChooseHost are as for the prompt popup: ctrl+o picks the machine
+	// the replies are translated on, and they are translated again there.
+	Hosts      Hosts
+	ChooseHost func(name string) (ReplyTranslator, string, error)
 }
 
 // Snapshot is what a reader shows, with nothing that ties it to the process
@@ -131,6 +135,9 @@ type Reader struct {
 	// pane's size is known: only then does the text have rows to count.
 	returnTo *Snapshot
 	pane     tea.WindowSizeMsg
+	picker   hostPicker
+	// hint is something worth knowing, in the footer until the next key.
+	hint string
 }
 
 // result is one reply's translation as far as it has come.
@@ -293,6 +300,10 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return r.handleKey(msg)
+
+	case hostProbedMsg:
+		r.picker = r.picker.probed(msg)
+		return r, nil
 
 	case hideAskedMsg:
 		return r.handOn(r.options.Hide)
@@ -469,8 +480,18 @@ func lastOf(text string, most int) string {
 
 func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	rows := r.rows()
+	r.hint = ""
 	switch {
-	case key.Type == tea.KeyEsc, key.Type == tea.KeyCtrlC, key.String() == "q":
+	case key.Type == tea.KeyCtrlC:
+		return r, tea.Quit
+
+	case r.picker.open:
+		return r.pickKey(key)
+
+	case key.Type == tea.KeyCtrlO && r.options.Hosts != nil:
+		return r.openPicker()
+
+	case key.Type == tea.KeyEsc, key.String() == "q":
 		return r, tea.Quit
 
 	case key.String() == "h" && !r.options.InPane:
@@ -636,6 +657,9 @@ func thoughtFor(took time.Duration) string {
 }
 
 func (r Reader) View() string {
+	if r.picker.open {
+		return r.pickerView()
+	}
 	rows := r.rows()
 	lines := r.lines()
 	total := len(lines)
@@ -695,11 +719,17 @@ func (r Reader) footer(inner int) string {
 	// Beside a failure there is room only for the keys that answer it.
 	if r.failure != nil {
 		keys := key("esc", "close")
+		if choosable(r.options.Hosts) {
+			keys = key("ctrl+o", "host") + separator + keys
+		}
 		if r.options.Trouble == nil && r.loaded && r.next < len(r.shown) {
 			keys = key("ctrl+t", "try again") + separator + keys
 		}
 		said := cutTo("✗ "+r.failure.Error(), max(inner-lipgloss.Width(keys)-2, 1))
 		return spread(" "+look.danger.Render(said), keys, inner)
+	}
+	if r.hint != "" {
+		return spread(" "+look.badge.Render(cutTo(r.hint, max(inner-2, 1))), "", inner)
 	}
 	hints := []string{key("↑↓", "read"), key("tab", r.otherView())}
 	if r.options.Hide != nil && !r.options.InPane {
@@ -707,6 +737,9 @@ func (r Reader) footer(inner int) string {
 	}
 	if r.options.Move != nil {
 		hints = append(hints, key("m", "→ "+r.elsewhere()))
+	}
+	if choosable(r.options.Hosts) {
+		hints = append(hints, key("ctrl+o", "host"))
 	}
 	hints = append(hints, key("esc", "close"))
 	return spread(" "+strings.Join(hints, separator), "", inner)
