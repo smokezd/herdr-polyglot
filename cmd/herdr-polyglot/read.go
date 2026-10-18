@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/wazum/herdr-polyglot/internal/clipboard"
 	"github.com/wazum/herdr-polyglot/internal/config"
 	"github.com/wazum/herdr-polyglot/internal/draft"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
@@ -54,6 +56,10 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		Pulse:    settings.Pulse,
 		InPane:   place == readstate.Pane,
 		Resumed:  resumed,
+		Copy: func(text string) error {
+			tools := clipboard.Tools(runtime.GOOS, os.Getenv("WAYLAND_DISPLAY") != "")
+			return clipboard.Write(ctx, tools, text)
+		},
 		Move: func(saved overlay.Snapshot) error {
 			if err := keep(store.Handoff(agent, place.Other()), &saved); err != nil {
 				return err

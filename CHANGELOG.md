@@ -14,6 +14,9 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ctrl+o` in any popup lists them, says which are up, and switches. The choice is
   remembered for the popups after it. The header names the host in use, as
   "LM Studio on macstudio".
+- In the reader, `y` copies all of what is on show to the clipboard, the
+  translation or the original, however far it is scrolled; and `ctrl+b` pages up,
+  as `space` pages down.
 - The agent's replies can be read in your own language: the action
   `wazum.polyglot.read` translates the latest reply into
   `HERDR_POLYGLOT_READ_LANGUAGE` and shows it in a popup. `HERDR_POLYGLOT_READ_REPLIES`

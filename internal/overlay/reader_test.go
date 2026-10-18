@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -493,4 +494,78 @@ func TestAPromptStillBeingAnsweredIsWaitedForNotTakenForTheOneBefore(t *testing.
 	if final := reader.FinalModel(t).View(); strings.Contains(final, "OLD ANSWER") {
 		t.Errorf("the reply before was shown as the answer:\n%s", final)
 	}
+}
+
+func TestCtrlBPagesUpAndSpacePagesDown(t *testing.T) {
+	t.Parallel()
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	lines[59] = "the very end"
+
+	reader := newReader(t, &fixedReplies{replies: []string{strings.Join(lines, "\n")}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "THE VERY END", "100%")
+	reader.Send(tea.KeyMsg{Type: tea.KeyCtrlB})
+	teatest.WaitFor(t, reader.Output(), func(out []byte) bool {
+		return bytes.Contains(out, []byte("LINE")) && !bytes.Contains(out, []byte("THE VERY END"))
+	}, teatest.WithDuration(3*time.Second))
+	reader.Send(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")})
+	waitForText(t, reader, "THE VERY END", "100%")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+}
+
+// clipboard keeps what was copied to it.
+type clipboard struct {
+	mu   sync.Mutex
+	kept []string
+}
+
+func (c *clipboard) copy(text string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.kept = append(c.kept, text)
+	return nil
+}
+
+func (c *clipboard) copied() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.kept...)
+}
+
+func TestYCopiesWhatIsOnShowWholeTheTranslationOrTheOriginal(t *testing.T) {
+	t.Parallel()
+	board := &clipboard{}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"first answer", "second answer"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 2, Copy: board.copy})
+	waitForText(t, reader, "FIRST ANSWER", "SECOND ANSWER", "y copy")
+	reader.Send(tea.KeyMsg{Runes: []rune("y"), Type: tea.KeyRunes})
+	waitForText(t, reader, "copied")
+	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
+	reader.Send(tea.KeyMsg{Runes: []rune("y"), Type: tea.KeyRunes})
+	teatest.WaitFor(t, reader.Output(), func([]byte) bool { return len(board.copied()) == 2 },
+		teatest.WithDuration(3*time.Second))
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	want := []string{"FIRST ANSWER\n\nSECOND ANSWER", "first answer\n\nsecond answer"}
+	if got := board.copied(); !slices.Equal(got, want) {
+		t.Errorf("copied %q, want %q", got, want)
+	}
+}
+
+func TestACopyThatFailsSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	reader := newReader(t, &fixedReplies{replies: []string{"answer"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1, Copy: func(string) error { return errors.New("no clipboard tool found") }})
+	waitForText(t, reader, "ANSWER")
+	reader.Send(tea.KeyMsg{Runes: []rune("y"), Type: tea.KeyRunes})
+	waitForText(t, reader, "no clipboard tool found")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }

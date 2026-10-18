@@ -241,9 +241,12 @@ is hidden or moved is translated again by the one that takes over; finished ones
 are not. herdr sizes a pane itself, so the reading width and height apply to the
 popup only.
 
-In the popup `↑ ↓ PageUp PageDown j k g G` scroll, `tab` shows the reply as the
-agent wrote it, `ctrl+t` tries again after a failure, `h` hides the popup, `m`
-moves it, and `esc` or `q` closes.
+In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b` a
+page at a time, `tab` shows the reply as the agent wrote it, `y` copies all of
+what is on show (the translation, or the original after `tab`) to the clipboard,
+`ctrl+t` tries again after a failure, `h` hides the popup, `m` moves it, and
+`esc` or `q` closes. Copying uses `pbcopy` on macOS, and `wl-copy`, `xclip` or
+`xsel` on Linux.
 
 ## What leaves your machine
 

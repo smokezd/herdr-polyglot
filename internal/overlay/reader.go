@@ -65,6 +65,8 @@ type ReaderOptions struct {
 	// the replies are translated on, and they are translated again there.
 	Hosts      Hosts
 	ChooseHost func(name string) (ReplyTranslator, string, error)
+	// Copy puts text on the clipboard. Without it y does nothing.
+	Copy func(text string) error
 }
 
 // Snapshot is what a reader shows, with nothing that ties it to the process
@@ -225,6 +227,11 @@ type (
 	refreshAskedMsg struct{}
 	// waitedMsg is time to look again for an answer the agent has yet to give.
 	waitedMsg struct{ fetch int }
+	// copiedMsg is the clipboard's answer to y.
+	copiedMsg struct {
+		lines int
+		err   error
+	}
 	// resumeMsg goes on with a reply a reader before this one left unfinished.
 	resumeMsg struct{}
 	// replyProgressMsg carries the channels it came from, so the next piece is
@@ -332,6 +339,14 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handOn(r.options.Move)
 	case refreshAskedMsg:
 		return r.refresh()
+	case copiedMsg:
+		if msg.err != nil {
+			r.hint = "✗ not copied: " + msg.err.Error()
+			return r, nil
+		}
+		r.hint = "copied " + plural(msg.lines, "line", "lines")
+		return r, nil
+
 	case waitedMsg:
 		if msg.fetch != r.fetch || !r.waiting() {
 			return r, nil
@@ -528,6 +543,9 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.String() == "m":
 		return r.handOn(r.options.Move)
 
+	case key.String() == "y":
+		return r, r.copyShown()
+
 	case key.Type == tea.KeyTab:
 		r.original = !r.original
 		r.from = r.clamp(r.from)
@@ -545,7 +563,7 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.scrollTo(r.from - 1)
 	case key.Type == tea.KeyDown, key.String() == "j":
 		r.scrollTo(r.from + 1)
-	case key.Type == tea.KeyPgUp:
+	case key.Type == tea.KeyPgUp, key.Type == tea.KeyCtrlB:
 		r.scrollTo(r.from - rows)
 	case key.Type == tea.KeyPgDown, key.Type == tea.KeySpace:
 		r.scrollTo(r.from + rows)
@@ -555,6 +573,32 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.scrollTo(r.total())
 	}
 	return r, nil
+}
+
+// copyShown copies what is on show, every reply of it whole however far it is
+// scrolled: the translation as far as it has come, or the replies as the agent
+// wrote them.
+func (r Reader) copyShown() tea.Cmd {
+	if r.options.Copy == nil || !r.loaded || r.waiting() {
+		return nil
+	}
+	var texts []string
+	for index, reply := range r.shown {
+		text := reply
+		if !r.original && r.options.Trouble == nil {
+			text = r.results[index].text
+		}
+		if text = strings.TrimSpace(text); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	if len(texts) == 0 {
+		return nil
+	}
+	whole, copyTo := strings.Join(texts, "\n\n"), r.options.Copy
+	return func() tea.Msg {
+		return copiedMsg{lines: strings.Count(whole, "\n") + 1, err: copyTo(whole)}
+	}
 }
 
 // scrollBack puts the view where an earlier reader had it. The same share of
@@ -769,6 +813,9 @@ func (r Reader) footer(inner int) string {
 	}
 	if r.options.Move != nil {
 		hints = append(hints, key("m", "→ "+r.elsewhere()))
+	}
+	if r.options.Copy != nil {
+		hints = append(hints, key("y", "copy"))
 	}
 	if choosable(r.options.Hosts) {
 		hints = append(hints, key("ctrl+o", "host"))
