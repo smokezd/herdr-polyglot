@@ -47,7 +47,7 @@ func TestTheChosenHostIsRememberedForTheNextPopup(t *testing.T) {
 		t.Errorf("applied %+v and %+v, want the gpu's endpoint, model and key",
 			applied.Options, applied.Model)
 	}
-	if label := hosts.label("lmstudio"); label != "lmstudio · gpu" {
+	if label := hosts.label("lmstudio"); label != "LM Studio on gpu" {
 		t.Errorf("the service is called %q, want the host named", label)
 	}
 }

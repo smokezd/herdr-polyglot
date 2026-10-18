@@ -57,7 +57,7 @@ func pickerOverlay(t *testing.T, chosen *choices, live bool) *teatest.TestModel 
 	t.Helper()
 	target := &recordingTarget{}
 	return newOverlayWith(t, stubTranslator{english: english}, target, overlay.Options{
-		Service:  "lmstudio · laptop",
+		Service:  "LM Studio on laptop",
 		Language: "EN-US",
 		Live:     live,
 		Debounce: time.Millisecond,
@@ -65,7 +65,7 @@ func pickerOverlay(t *testing.T, chosen *choices, live bool) *teatest.TestModel 
 		ChooseHost: func(name string) (overlay.Prompter, string, error) {
 			chosen.add(name)
 			return promptflow.New(stubTranslator{english: "Translated on " + name}, target, target),
-				"lmstudio · " + name, nil
+				"LM Studio on " + name, nil
 		},
 	})
 }
@@ -92,7 +92,7 @@ func TestChoosingAHostTranslatesWithItFromThenOn(t *testing.T) {
 	popup.Send(tea.KeyMsg{Type: tea.KeyCtrlO})
 	popup.Send(tea.KeyMsg{Type: tea.KeyDown})
 	popup.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForText(t, popup, "lmstudio · gpu", "Translated on gpu")
+	waitForText(t, popup, "LM Studio on gpu", "Translated on gpu")
 
 	popup.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	popup.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
@@ -158,11 +158,11 @@ func TestChoosingAHostInTheReaderTranslatesTheRepliesAgain(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{"all done"}}, prefixTranslator{host: "laptop"},
 		overlay.ReaderOptions{
-			Source: "Claude Code", Service: "lmstudio · laptop", Language: "DE",
+			Source: "Claude Code", Service: "LM Studio on laptop", Language: "DE",
 			Hosts: twoHosts{current: "laptop"},
 			ChooseHost: func(name string) (overlay.ReplyTranslator, string, error) {
 				chosen.add(name)
-				return prefixTranslator{host: name}, "lmstudio · " + name, nil
+				return prefixTranslator{host: name}, "LM Studio on " + name, nil
 			},
 		})
 	waitForText(t, reader, "laptop: ALL DONE")
@@ -171,7 +171,7 @@ func TestChoosingAHostInTheReaderTranslatesTheRepliesAgain(t *testing.T) {
 	waitForText(t, reader, "✗ unreachable")
 	reader.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	reader.Send(tea.KeyMsg{Type: tea.KeyEnter})
-	waitForText(t, reader, "lmstudio · gpu", "gpu: ALL DONE")
+	waitForText(t, reader, "LM Studio on gpu", "gpu: ALL DONE")
 
 	reader.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))

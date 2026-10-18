@@ -100,10 +100,11 @@ func (h *lmHosts) applied() *config.Settings {
 }
 
 // label names the host along with the service once there is more than one to
-// tell apart.
+// tell apart, as one phrase: a host's name can look like the service's, and two
+// names side by side read as two choices.
 func (h *lmHosts) label(service string) string {
 	if len(h.settings.Hosts) < 2 || service != (lmstudio.Provider{}).Name() {
 		return service
 	}
-	return service + " · " + h.current
+	return "LM Studio on " + h.current
 }
