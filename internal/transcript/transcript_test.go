@@ -270,3 +270,23 @@ func TestAnErrorClaudeCodeWritesInTheAgentsPlaceIsNotPartOfTheReply(t *testing.T
 		t.Errorf("replies are %q, want %q", got, want)
 	}
 }
+
+func TestASessionClaudeCodeContinuedInAnotherIsReadWhereItWentOn(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "projects", "-some-project", "abc-123.jsonl"), firstPrompt,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Before the move."}]}}`,
+		`{"type":"continued-in","sessionId":"abc-123","continuedInSessionId":"def-456"}`)
+	writeFile(t, filepath.Join(home, "projects", "-some-project", "def-456.jsonl"), firstPrompt,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Before the move."}]}}`,
+		secondPrompt,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"After the move."}]}}`,
+		`{"type":"continued-in","sessionId":"def-456","continuedInSessionId":"abc-123"}`)
+	herdr := &fakeHerdr{agent: `{"agent":"claude","cwd":"/some/project","agent_session":{"value":"abc-123"}}`}
+
+	got := texts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Claude: home}), 1)
+
+	if want := []string{"After the move."}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}

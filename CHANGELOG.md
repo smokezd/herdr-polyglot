@@ -80,6 +80,9 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wait on.
 - An error *Claude Code* writes in the agent's place, such as "Your computer went
   to sleep mid-response", is no longer read as part of the reply.
+- A *Claude Code* session that went on under a new id is read where it went on.
+  Herdr can keep reporting the old id, whose file stops at the move, so the
+  reader showed a reply from before it.
 - A service that times out or cannot be reached says so in a sentence, instead of
   showing a Go error with a URL and a client timeout in it.
 - Reading a translation that failed shows what went wrong, rather than claiming

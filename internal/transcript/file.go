@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -263,13 +264,49 @@ func codexTurns(records io.Reader) ([]string, error) {
 
 // claudeSession finds the session by its id alone. The folder it is in is
 // named after the working directory, but how Claude Code spells that name is
-// its own business.
+// its own business. A session Claude Code went on with under another id ends
+// by naming it, and herdr may not have noticed, so the reading goes where the
+// session went.
 func claudeSession(home, session string) string {
-	if home == "" || !safeID(session) {
+	if home == "" {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(home, "projects", "*", session+".jsonl"))
-	return newest(matches)
+	path := ""
+	for seen := map[string]bool{}; safeID(session) && !seen[session]; {
+		seen[session] = true
+		matches, _ := filepath.Glob(filepath.Join(home, "projects", "*", session+".jsonl"))
+		found := newest(matches)
+		if found == "" {
+			break
+		}
+		path, session = found, continuedIn(found)
+	}
+	return path
+}
+
+// continuedIn is the id of the session a Claude Code session went on in, if it
+// did.
+func continuedIn(path string) string {
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	next := ""
+	_ = eachRecord(file, func(line []byte) {
+		if !bytes.Contains(line, []byte(`"continued-in"`)) {
+			return
+		}
+		var record struct {
+			Type string `json:"type"`
+			Next string `json:"continuedInSessionId"`
+		}
+		if json.Unmarshal(line, &record) == nil && record.Type == "continued-in" {
+			next = record.Next
+		}
+	})
+	return next
 }
 
 // codexSession finds the rollout named after the session, or else the latest
