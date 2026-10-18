@@ -12,7 +12,8 @@ import (
 )
 
 // Reply is what the agent answered to one prompt, without its tool calls or
-// its reasoning.
+// its reasoning. An empty one is the answer to a prompt the agent is still
+// working on.
 type Reply struct{ Text string }
 
 // Source hands out the agent's latest replies.

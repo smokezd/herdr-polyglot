@@ -68,18 +68,29 @@ type turnsOf struct {
 	replies []string
 	current []string
 	started bool
+	// waiting is a prompt the agent is still working on and has said nothing
+	// to yet. It is handed out as an empty reply, so the one before it is not
+	// taken for the answer.
+	waiting bool
 }
 
-func (t *turnsOf) prompt() {
+// prompt starts a turn. awaited says an answer is sure to follow, which is not
+// so for a command Claude Code runs itself.
+func (t *turnsOf) prompt(awaited bool) {
 	t.close()
 	t.started = true
+	t.waiting = awaited
 }
 
 func (t *turnsOf) say(text string) {
 	if text = strings.TrimSpace(text); text != "" && t.started {
 		t.current = append(t.current, text)
+		t.waiting = false
 	}
 }
+
+// end is the agent done with the turn, whether or not it said anything.
+func (t *turnsOf) end() { t.waiting = false }
 
 func (t *turnsOf) close() {
 	if len(t.current) > 0 {
@@ -90,13 +101,18 @@ func (t *turnsOf) close() {
 
 func (t *turnsOf) done() []string {
 	t.close()
+	if t.waiting {
+		t.replies = append(t.replies, "")
+	}
 	return t.replies
 }
 
 // claudeTurns reads a Claude Code session. A prompt is a user message with
 // text in it; a user message holding only tool results is the agent's own
 // work going on. What the agent says is the text of its messages, not its
-// thinking or its tool calls, and not what a subagent said on the side.
+// thinking or its tool calls, and not what a subagent said on the side, nor an
+// error Claude Code wrote in its place. A turn is over once Claude Code says how
+// long it took.
 func claudeTurns(records io.Reader) ([]string, error) {
 	var turns turnsOf
 	err := eachRecord(records, func(line []byte) {
@@ -104,11 +120,17 @@ func claudeTurns(records io.Reader) ([]string, error) {
 			Type      string `json:"type"`
 			Sidechain bool   `json:"isSidechain"`
 			Meta      bool   `json:"isMeta"`
+			Subtype   string `json:"subtype"`
+			APIError  bool   `json:"isApiErrorMessage"`
 			Message   struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(line, &record) != nil || record.Sidechain || record.Meta {
+		if json.Unmarshal(line, &record) != nil || record.Sidechain || record.Meta || record.APIError {
+			return
+		}
+		if record.Type == "system" && record.Subtype == "turn_duration" {
+			turns.end()
 			return
 		}
 
@@ -128,12 +150,12 @@ func claudeTurns(records io.Reader) ([]string, error) {
 		switch record.Type {
 		case "user":
 			if said != "" {
-				turns.prompt()
+				turns.prompt(awaited(said))
 				return
 			}
 			for _, block := range blocks {
 				if block.Type == "text" {
-					turns.prompt()
+					turns.prompt(awaited(block.Text))
 					return
 				}
 			}
@@ -150,6 +172,18 @@ func claudeTurns(records io.Reader) ([]string, error) {
 		}
 	})
 	return turns.done(), err
+}
+
+// awaited says whether a user message is one the agent answers. A slash
+// command, what it printed and a note that the agent was stopped are recorded
+// as the user's too, and some of them are never answered.
+func awaited(prompt string) bool {
+	for _, own := range []string{"<command-name>", "<command-message>", "<local-command-", "[Request interrupted"} {
+		if strings.HasPrefix(strings.TrimSpace(prompt), own) {
+			return false
+		}
+	}
+	return true
 }
 
 // addressedToTheReader is what a tool call says to the person at the
@@ -218,7 +252,8 @@ func codexTurns(records io.Reader) ([]string, error) {
 		}
 		switch record.Payload.Type {
 		case "user_message":
-			turns.prompt()
+			// Not read for when a turn ends, so no turn is waited on.
+			turns.prompt(false)
 		case "agent_message":
 			turns.say(record.Payload.Message)
 		}

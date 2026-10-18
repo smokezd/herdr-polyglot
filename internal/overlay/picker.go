@@ -262,7 +262,7 @@ func (r Reader) useHost(name string) (tea.Model, tea.Cmd) {
 	r.attempt++
 	r.failure = trouble
 	r.canvas.endPulse()
-	if !r.loaded || len(r.shown) == 0 || trouble != nil {
+	if !r.loaded || len(r.shown) == 0 || r.waiting() || trouble != nil {
 		return r, nil
 	}
 	r.results = make([]result, len(r.shown))

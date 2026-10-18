@@ -207,3 +207,66 @@ func TestEveryQuestionOfAGroupIsInTheReplyNotOnlyTheTabOnScreen(t *testing.T) {
 		t.Errorf("reply is %q, want every question in turn", got)
 	}
 }
+
+func claudeReplies(t *testing.T, lines ...string) []string {
+	t.Helper()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "projects", "-some-project", "abc-123.jsonl"), lines...)
+	herdr := &fakeHerdr{agent: `{"agent":"claude","cwd":"/some/project","agent_session":{"value":"abc-123"}}`}
+	return texts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Claude: home}), 5)
+}
+
+const (
+	firstPrompt  = `{"type":"user","message":{"role":"user","content":"erste Frage"}}`
+	firstAnswer  = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The first answer."}]}}`
+	turnEnded    = `{"type":"system","subtype":"turn_duration","durationMs":1000}`
+	secondPrompt = `{"type":"user","message":{"role":"user","content":"zweite Frage"}}`
+)
+
+func TestAPromptTheAgentIsStillWorkingOnIsAnEmptyReply(t *testing.T) {
+	t.Parallel()
+
+	got := claudeReplies(t, firstPrompt, firstAnswer, turnEnded, secondPrompt,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}`)
+
+	if want := []string{"The first answer.", ""}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}
+
+func TestATurnThatEndedWithoutAWordIsNoReply(t *testing.T) {
+	t.Parallel()
+
+	got := claudeReplies(t, firstPrompt, firstAnswer, turnEnded, secondPrompt,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}`,
+		turnEnded)
+
+	if want := []string{"The first answer."}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}
+
+func TestACommandRunInClaudeCodeIsNotAPromptToWaitOn(t *testing.T) {
+	t.Parallel()
+
+	got := claudeReplies(t, firstPrompt, firstAnswer, turnEnded,
+		`{"type":"user","message":{"role":"user","content":"<command-name>/copy</command-name>\n<command-message>copy</command-message>"}}`,
+		`{"type":"user","message":{"role":"user","content":"<local-command-stdout>Copied to clipboard</local-command-stdout>"}}`)
+
+	if want := []string{"The first answer."}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}
+
+func TestAnErrorClaudeCodeWritesInTheAgentsPlaceIsNotPartOfTheReply(t *testing.T) {
+	t.Parallel()
+
+	got := claudeReplies(t, firstPrompt, firstAnswer,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: Your computer went to sleep mid-response."}]}}`,
+		turnEnded)
+
+	if want := []string{"The first answer."}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}

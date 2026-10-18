@@ -11,7 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Replies are what the agent answered, oldest first.
+// Replies are what the agent answered, oldest first. The last one is empty
+// while the agent is still working on the latest prompt and has said nothing.
 type Replies interface {
 	Latest(ctx context.Context, n int) ([]string, error)
 }
@@ -94,6 +95,10 @@ type SnapshotReply struct {
 // maxContext is how much of what came before travels with a reply. The end of
 // it is what matters, and a service reads a long one slowly or not at all.
 const maxContext = 4_000
+
+// answerPoll is how often the agent's replies are read again while it has yet
+// to answer the latest prompt.
+const answerPoll = time.Second
 
 // ReaderHeight is the height to ask herdr for: a reply wants more rows than a
 // prompt does.
@@ -218,6 +223,8 @@ type (
 	hideAskedMsg    struct{}
 	moveAskedMsg    struct{}
 	refreshAskedMsg struct{}
+	// waitedMsg is time to look again for an answer the agent has yet to give.
+	waitedMsg struct{ fetch int }
 	// resumeMsg goes on with a reply a reader before this one left unfinished.
 	resumeMsg struct{}
 	// replyProgressMsg carries the channels it came from, so the next piece is
@@ -242,6 +249,9 @@ func RefreshAsked() tea.Msg { return refreshAskedMsg{} }
 
 func (r Reader) Init() tea.Cmd {
 	if r.options.Resumed != nil {
+		if r.waiting() {
+			return r.fetchReplies()
+		}
 		if r.next < len(r.shown) && r.options.Trouble == nil {
 			// Starting changes the model, which Init cannot keep.
 			return func() tea.Msg { return resumeMsg{} }
@@ -258,6 +268,17 @@ func (r Reader) fetchReplies() tea.Cmd {
 		found, err := replies.Latest(ctx, wanted)
 		return repliesMsg{fetch: fetch, replies: found, err: err}
 	}
+}
+
+// waiting says the agent has yet to answer the latest prompt. The reply before
+// it is not the answer, so nothing is translated until there is one.
+func (r Reader) waiting() bool {
+	return r.loaded && len(r.shown) > 0 && r.shown[len(r.shown)-1] == ""
+}
+
+func (r Reader) waitForAnswer() tea.Cmd {
+	fetch := r.fetch
+	return tea.Tick(answerPoll, func(time.Time) tea.Msg { return waitedMsg{fetch: fetch} })
 }
 
 // refresh drops what is on show and reads the agent's latest replies again.
@@ -311,6 +332,11 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r.handOn(r.options.Move)
 	case refreshAskedMsg:
 		return r.refresh()
+	case waitedMsg:
+		if msg.fetch != r.fetch || !r.waiting() {
+			return r, nil
+		}
+		return r, r.fetchReplies()
 	case resumeMsg:
 		started := r.startTranslating()
 		return r, started
@@ -326,6 +352,9 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		r.shown, r.context = r.split(msg.replies)
 		r.results = make([]result, len(r.shown))
+		if r.waiting() {
+			return r, r.waitForAnswer()
+		}
 		if len(r.shown) == 0 || r.options.Trouble != nil {
 			return r, nil
 		}
@@ -599,6 +628,9 @@ func (r Reader) lines() []string {
 	case len(r.shown) == 0:
 		add("the agent has not said anything yet", look.placeholder)
 		return lines
+	case r.waiting():
+		add("waiting for the agent to answer …", look.placeholder)
+		return lines
 	}
 
 	rule := strings.Repeat("─", min(width, 24))
@@ -689,7 +721,7 @@ func (r Reader) header(line int) string {
 }
 
 func (r Reader) working() bool {
-	return r.loaded && r.failure == nil && r.next < len(r.shown) && r.options.Trouble == nil
+	return r.loaded && r.failure == nil && r.next < len(r.shown) && r.options.Trouble == nil && !r.waiting()
 }
 
 // counted says how much is on show and how much went along unseen.

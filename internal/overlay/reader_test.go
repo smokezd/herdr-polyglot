@@ -448,3 +448,49 @@ func TestAReaderThatFollowedTheEndStillDoesWhereverItGoes(t *testing.T) {
 		t.Errorf("the end is not in view:\n%s", view)
 	}
 }
+
+// laterReplies hands out one set of replies until it is told the agent has
+// answered, and the next set after.
+type laterReplies struct {
+	mu       sync.Mutex
+	replies  []string
+	answered []string
+	reads    int
+}
+
+func (l *laterReplies) Latest(_ context.Context, n int) ([]string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reads++
+	found := l.replies
+	if len(found) > n {
+		found = found[len(found)-n:]
+	}
+	return found, nil
+}
+
+func (l *laterReplies) answer() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.replies = l.answered
+}
+
+func TestAPromptStillBeingAnsweredIsWaitedForNotTakenForTheOneBefore(t *testing.T) {
+	t.Parallel()
+	replies := &laterReplies{replies: []string{"old answer", ""}, answered: []string{"old answer", "new answer"}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, replies, translator, overlay.ReaderOptions{Replies: 1, Context: 1})
+	waitForText(t, reader, "waiting for the agent to answer")
+	replies.answer()
+	waitForText(t, reader, "NEW ANSWER")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 1 || told[0] != "old answer" {
+		t.Errorf("the service was told %q, want the new answer only, after the old one", told)
+	}
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "OLD ANSWER") {
+		t.Errorf("the reply before was shown as the answer:\n%s", final)
+	}
+}
