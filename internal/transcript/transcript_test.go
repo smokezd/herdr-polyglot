@@ -271,6 +271,19 @@ func TestAnErrorClaudeCodeWritesInTheAgentsPlaceIsNotPartOfTheReply(t *testing.T
 	}
 }
 
+func TestASummaryClaudeCodeWritesWhenItCompactsIsNotAPromptToWaitOn(t *testing.T) {
+	t.Parallel()
+
+	got := claudeReplies(t, firstPrompt, firstAnswer, turnEnded,
+		`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}`,
+		`{"type":"user","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context."}}`,
+		`{"type":"system","subtype":"informational","content":"Compacted while idle, before the prompt cache expired"}`)
+
+	if want := []string{"The first answer."}; !slices.Equal(got, want) {
+		t.Errorf("replies are %q, want %q", got, want)
+	}
+}
+
 func TestASessionClaudeCodeContinuedInAnotherIsReadWhereItWentOn(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

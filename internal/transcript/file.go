@@ -112,8 +112,9 @@ func (t *turnsOf) done() []string {
 // text in it; a user message holding only tool results is the agent's own
 // work going on. What the agent says is the text of its messages, not its
 // thinking or its tool calls, and not what a subagent said on the side, nor an
-// error Claude Code wrote in its place. A turn is over once Claude Code says how
-// long it took.
+// error Claude Code wrote in its place. The summary Claude Code writes as the
+// user's when it compacts the session is no prompt either. A turn is over once
+// Claude Code says how long it took.
 func claudeTurns(records io.Reader) ([]string, error) {
 	var turns turnsOf
 	err := eachRecord(records, func(line []byte) {
@@ -123,11 +124,12 @@ func claudeTurns(records io.Reader) ([]string, error) {
 			Meta      bool   `json:"isMeta"`
 			Subtype   string `json:"subtype"`
 			APIError  bool   `json:"isApiErrorMessage"`
+			Summary   bool   `json:"isCompactSummary"`
 			Message   struct {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(line, &record) != nil || record.Sidechain || record.Meta || record.APIError {
+		if json.Unmarshal(line, &record) != nil || record.Sidechain || record.Meta || record.APIError || record.Summary {
 			return
 		}
 		if record.Type == "system" && record.Subtype == "turn_duration" {
