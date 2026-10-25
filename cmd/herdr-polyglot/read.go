@@ -39,6 +39,7 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		place = readstate.Pane
 	}
 	resumed := takeOver(store, agent, place, os.Getenv(resumeEnv))
+	style := markdownStyle(settings)
 
 	// The replies are only looked for when there is no earlier reader's to
 	// show, or once they are asked for again.
@@ -51,7 +52,8 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		Replies:       settings.Read.Replies,
 		Context:       settings.Read.Context,
 		Markdown:      settings.Read.Markdown,
-		MarkdownStyle: settings.Read.MarkdownStyle,
+		MarkdownStyle: style.current,
+		KeepStyle:     style.keep,
 		Trouble:       chosen.trouble,
 		Pulse:         settings.Pulse,
 		InPane:        place == readstate.Pane,

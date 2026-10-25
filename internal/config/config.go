@@ -185,7 +185,7 @@ func Load(getenv func(string) string) (Settings, error) {
 			Language:      lookup(readLangVar),
 			Replies:       given.count(readShowVar, defaultReadReplies, 1),
 			Context:       given.count(readCtxVar, defaultReadContext, 0),
-			Markdown:      given.flag(readMdVar, false),
+			Markdown:      given.flag(readMdVar, true),
 			MarkdownStyle: given.markdownStyle(readMdStyle),
 			Size:          Size{Width: given.extent(readWideVar), Height: given.extent(readHighVar)},
 		},

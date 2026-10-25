@@ -460,7 +460,7 @@ func TestLoadReadsOneReplyWithTwoBeforeItAndNoLanguageUnlessTold(t *testing.T) {
 	if settings.Reading {
 		t.Error("Reading is true, want the prompt box unless the mode says otherwise")
 	}
-	want := config.ReadSettings{Language: "", Replies: 1, Context: 2, MarkdownStyle: "dark"}
+	want := config.ReadSettings{Language: "", Replies: 1, Context: 2, Markdown: true, MarkdownStyle: "dark"}
 	if settings.Read != want {
 		t.Errorf("Read is %+v, want %+v", settings.Read, want)
 	}
@@ -481,7 +481,7 @@ func TestLoadTakesTheReadingSettingsFromTheDotenv(t *testing.T) {
 	if !settings.Reading {
 		t.Error("Reading is false, want it on for HERDR_POLYGLOT_MODE=read")
 	}
-	want := config.ReadSettings{Language: "DE", Replies: 3, Context: 0, MarkdownStyle: "dark"}
+	want := config.ReadSettings{Language: "DE", Replies: 3, Context: 0, Markdown: true, MarkdownStyle: "dark"}
 	if settings.Read != want {
 		t.Errorf("Read is %+v, want %+v", settings.Read, want)
 	}
@@ -616,27 +616,27 @@ func TestLMStudioHostsAndAnEndpointTogetherAreRefused(t *testing.T) {
 	}
 }
 
-func TestRepliesAreShownAsPlainTextInTheDarkStyleUnlessTold(t *testing.T) {
+func TestRepliesAreShownAsMarkdownInTheDarkStyleUnlessTold(t *testing.T) {
 	t.Parallel()
 
 	settings, err := config.Load(envFrom(map[string]string{"HERDR_POLYGLOT_TARGET": "w1:p1"}))
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
 	}
-	if settings.Read.Markdown || settings.Read.MarkdownStyle != "dark" {
-		t.Errorf("markdown is %v in %q, want off in dark", settings.Read.Markdown, settings.Read.MarkdownStyle)
+	if !settings.Read.Markdown || settings.Read.MarkdownStyle != "dark" {
+		t.Errorf("markdown is %v in %q, want on in dark", settings.Read.Markdown, settings.Read.MarkdownStyle)
 	}
 
 	settings, err = config.Load(envFrom(map[string]string{
 		"HERDR_POLYGLOT_TARGET":              "w1:p1",
-		"HERDR_POLYGLOT_READ_MARKDOWN":       "on",
+		"HERDR_POLYGLOT_READ_MARKDOWN":       "off",
 		"HERDR_POLYGLOT_READ_MARKDOWN_STYLE": "Light",
 	}))
 	if err != nil {
 		t.Fatalf("Load returned unexpected error: %v", err)
 	}
-	if !settings.Read.Markdown || settings.Read.MarkdownStyle != "light" {
-		t.Errorf("markdown is %v in %q, want on in light", settings.Read.Markdown, settings.Read.MarkdownStyle)
+	if settings.Read.Markdown || settings.Read.MarkdownStyle != "light" {
+		t.Errorf("markdown is %v in %q, want off in light", settings.Read.Markdown, settings.Read.MarkdownStyle)
 	}
 }
 

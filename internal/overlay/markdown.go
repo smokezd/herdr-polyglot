@@ -12,6 +12,21 @@ import (
 // dark terminal.
 const defaultMarkdownStyle = "dark"
 
+// MarkdownStyles are glamour's styles in the order S goes through them. Its
+// auto style is not one: it asks the terminal for its background, which a
+// popup may never answer.
+var MarkdownStyles = []string{"dark", "light", "dracula", "tokyo-night", "pink", "ascii", "notty"}
+
+// nextStyle is the style after style, round to the first again.
+func nextStyle(style string) string {
+	for index, known := range MarkdownStyles {
+		if known == style {
+			return MarkdownStyles[(index+1)%len(MarkdownStyles)]
+		}
+	}
+	return MarkdownStyles[0]
+}
+
 // markdown renders a reply the way glow does. The screen is drawn again on
 // every key and every piece of a streamed translation, so what was rendered is
 // kept until the width changes; a reply being written is rendered anew as it
@@ -34,6 +49,20 @@ func newMarkdown(style string) *markdown {
 		style = defaultMarkdownStyle
 	}
 	return &markdown{style: style}
+}
+
+// Style is the style rendered in.
+func (m *markdown) Style() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.style
+}
+
+// use renders in style from now on, every text afresh.
+func (m *markdown) use(style string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.style, m.renderer = style, nil
 }
 
 // lines is text rendered at width, one styled line each, without the blank

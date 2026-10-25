@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -41,5 +42,21 @@ func TestALineIsNeverBrokenTwiceLeavingAWordOnItsOwn(t *testing.T) {
 				t.Errorf("width %d: %q is not shown as written", width, word)
 			}
 		}
+	}
+}
+
+func TestEveryStyleSGoesThroughIsOneGlamourHas(t *testing.T) {
+	t.Parallel()
+
+	for _, style := range MarkdownStyles {
+		if _, err := glamour.NewTermRenderer(glamour.WithStandardStyle(style)); err != nil {
+			t.Errorf("%s: %v", style, err)
+		}
+		if lines := newMarkdown(style).lines("# Title\n\nsome *words*", 40); len(lines) == 0 {
+			t.Errorf("%s rendered nothing", style)
+		}
+	}
+	if got := nextStyle(MarkdownStyles[len(MarkdownStyles)-1]); got != MarkdownStyles[0] {
+		t.Errorf("after the last style comes %q, want the first again", got)
 	}
 }

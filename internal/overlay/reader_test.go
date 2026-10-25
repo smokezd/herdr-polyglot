@@ -1074,3 +1074,36 @@ func TestMRendersTheWholeReplyInThePreview(t *testing.T) {
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
+
+var styleKey = tea.KeyMsg{Runes: []rune("S"), Type: tea.KeyRunes}
+
+func TestSGoesThroughTheMarkdownStylesAndKeepsTheOneChosen(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var chosen []string
+	var moved overlay.Snapshot
+
+	reader := newReader(t, &fixedReplies{replies: []string{"**bold** words"}}, &upperTranslator{},
+		overlay.ReaderOptions{
+			Replies: 1, MarkdownStyle: "dark",
+			KeepStyle: func(style string) { mu.Lock(); chosen = append(chosen, style); mu.Unlock() },
+			Move:      func(saved overlay.Snapshot) error { moved = saved; return nil },
+		})
+	waitForText(t, reader, "**BOLD** WORDS", "M markdown")
+	// S renders markdown when it was off, in the next style.
+	reader.Send(styleKey)
+	waitForPlain(t, reader, "BOLD WORDS", "M plain", "S light")
+	reader.Send(styleKey)
+	waitForPlain(t, reader, "S dracula")
+	reader.Send(tea.KeyMsg{Runes: []rune("m"), Type: tea.KeyRunes})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(chosen, []string{"light", "dracula"}) {
+		t.Errorf("kept %q, want each style as it was chosen", chosen)
+	}
+	if !moved.Markdown || moved.MarkdownStyle != "dracula" {
+		t.Errorf("handed on markdown %v in %q, want on in dracula", moved.Markdown, moved.MarkdownStyle)
+	}
+}

@@ -15,10 +15,11 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back and forth through the earlier ones. A new reply waits for `t`: the popup
   opens on the latest translation kept, and the service is asked nothing until
   then.
-- The reader can render what it shows as markdown, the way glow does: `M`
-  switches it in the reader and in a reply previewed whole,
-  `HERDR_POLYGLOT_READ_MARKDOWN` turns it on from the start, and
-  `HERDR_POLYGLOT_READ_MARKDOWN_STYLE` picks one of glamour's styles.
+- The reader renders what it shows as markdown, the way glow does: `M` switches
+  it off and on in the reader and in a reply previewed whole, and
+  `HERDR_POLYGLOT_READ_MARKDOWN=0` starts it off. `S` goes through glamour's
+  styles and keeps the one chosen for the popups after it;
+  `HERDR_POLYGLOT_READ_MARKDOWN_STYLE` names the one to start from.
 - In the reader, `l` lists every reply of the *Claude Code* or *Codex* session
   under the prompt it answered, ✓ on those translated already, and `enter`
   translates the one picked.

@@ -87,6 +87,8 @@ type ReaderOptions struct {
 	// as markdown in MarkdownStyle, one of glamour's; M turns it on and off.
 	Markdown      bool
 	MarkdownStyle string
+	// KeepStyle remembers the style S chose, for the readers after this one.
+	KeepStyle func(style string)
 	// History keeps each reply translated, and [ and ] step through it.
 	// Without it every reply is translated and the keys do nothing.
 	History History
@@ -112,8 +114,9 @@ type Snapshot struct {
 	Held bool `json:"held"`
 	// Picked names the reply picked from the list, when it is not the latest.
 	Picked string `json:"picked,omitempty"`
-	// Markdown says what is shown is rendered as markdown.
-	Markdown bool `json:"markdown,omitempty"`
+	// Markdown says what is shown is rendered as markdown, in MarkdownStyle.
+	Markdown      bool   `json:"markdown,omitempty"`
+	MarkdownStyle string `json:"markdown_style,omitempty"`
 }
 
 // SnapshotReply is one reply's translation as far as it had come.
@@ -238,6 +241,9 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		reader.next = min(max(saved.Next, 0), len(saved.Shown))
 		reader.original, reader.held, reader.picked = saved.Original, saved.Held, saved.Picked
 		reader.markdown = saved.Markdown
+		if saved.MarkdownStyle != "" {
+			reader.render = newMarkdown(saved.MarkdownStyle)
+		}
 		// Until the pane's size says where that is, the reader comes back
 		// where it was rather than at the end.
 		reader.follow = false
@@ -253,7 +259,7 @@ func (r Reader) Snapshot() Snapshot {
 		Source: r.options.Source, Whole: r.options.Whole,
 		Shown: r.shown, Context: r.context, Next: r.next,
 		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original, Held: r.held,
-		Picked: r.picked, Markdown: r.markdown,
+		Picked: r.picked, Markdown: r.markdown, MarkdownStyle: r.render.Style(),
 	}
 	for index := range r.shown {
 		kept := SnapshotReply{}
@@ -654,6 +660,11 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.from = r.clamp(r.from)
 		return r, nil
 
+	case key.String() == "S":
+		kept := r.nextStyle()
+		r.from = r.clamp(r.from)
+		return r, kept
+
 	case key.Type == tea.KeyCtrlT:
 		if r.failure == nil || !r.loaded || r.next >= len(r.shown) || r.options.Trouble != nil {
 			return r, nil
@@ -726,6 +737,22 @@ func (r *Reader) step(by int) {
 		r.browse = nil
 	}
 	r.toTop()
+}
+
+// nextStyle renders markdown in the style after the one in use, and renders
+// it at all if it was not, and keeps the choice for the readers after this one.
+func (r *Reader) nextStyle() tea.Cmd {
+	style := nextStyle(r.render.Style())
+	r.render.use(style)
+	r.markdown = true
+	keep := r.options.KeepStyle
+	if keep == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		keep(style)
+		return nil
+	}
 }
 
 // toTop shows what opens now from its start.
@@ -1040,6 +1067,9 @@ func (r Reader) footer(inner int) string {
 		return spread(" "+look.badge.Render(cutTo(r.hint, max(inner-2, 1))), "", inner)
 	}
 	hints := []string{key("↑↓", "read"), key("tab", r.otherView()), key("M", markdownHint(r.markdown))}
+	if r.markdown {
+		hints = append(hints, key("S", r.render.Style()))
+	}
 	if r.held {
 		hints = append([]string{key("t", "translate")}, hints...)
 	}
