@@ -60,3 +60,6 @@ const (
 func PreviewFailed(why string) tea.Msg {
 	return previewReadyMsg{err: errors.New(why)}
 }
+
+// PromptLine is a prompt as its row in the list of replies reads it.
+func PromptLine(prompt string, index int) string { return promptLine(prompt, index) }

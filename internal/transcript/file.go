@@ -18,7 +18,7 @@ import (
 type File struct {
 	name  string
 	path  string
-	turns func(records io.Reader) ([]string, error)
+	turns func(records io.Reader) ([]Reply, error)
 }
 
 func (f File) Name() string { return f.name }
@@ -39,11 +39,7 @@ func (f File) Latest(_ context.Context, n int) ([]Reply, error) {
 	if len(turns) > n {
 		turns = turns[len(turns)-n:]
 	}
-	replies := make([]Reply, len(turns))
-	for i, text := range turns {
-		replies[i] = Reply{Text: text}
-	}
-	return replies, nil
+	return turns, nil
 }
 
 // maxRecord is the longest line a session file may hold. A tool result can be
@@ -66,8 +62,10 @@ func eachRecord(records io.Reader, visit func(line []byte)) error {
 // turnsOf collects the replies of a session as it is read: a prompt starts a
 // new turn and everything the agent says until the next one belongs to it.
 type turnsOf struct {
-	replies []string
+	replies []Reply
 	current []string
+	// asked is the prompt of the turn under way.
+	asked   string
 	started bool
 	// waiting is a prompt the agent is still working on and has said nothing
 	// to yet. It is handed out as an empty reply, so the one before it is not
@@ -77,9 +75,10 @@ type turnsOf struct {
 
 // prompt starts a turn. awaited says an answer is sure to follow, which is not
 // so for a command Claude Code runs itself.
-func (t *turnsOf) prompt(awaited bool) {
+func (t *turnsOf) prompt(text string, awaited bool) {
 	t.close()
 	t.started = true
+	t.asked = text
 	t.waiting = awaited
 }
 
@@ -95,15 +94,15 @@ func (t *turnsOf) end() { t.waiting = false }
 
 func (t *turnsOf) close() {
 	if len(t.current) > 0 {
-		t.replies = append(t.replies, strings.Join(t.current, "\n\n"))
+		t.replies = append(t.replies, Reply{Text: strings.Join(t.current, "\n\n"), Prompt: t.asked})
 	}
 	t.current = nil
 }
 
-func (t *turnsOf) done() []string {
+func (t *turnsOf) done() []Reply {
 	t.close()
 	if t.waiting {
-		t.replies = append(t.replies, "")
+		t.replies = append(t.replies, Reply{Prompt: t.asked})
 	}
 	return t.replies
 }
@@ -115,7 +114,7 @@ func (t *turnsOf) done() []string {
 // error Claude Code wrote in its place. The summary Claude Code writes as the
 // user's when it compacts the session is no prompt either. A turn is over once
 // Claude Code says how long it took.
-func claudeTurns(records io.Reader) ([]string, error) {
+func claudeTurns(records io.Reader) ([]Reply, error) {
 	var turns turnsOf
 	err := eachRecord(records, func(line []byte) {
 		var record struct {
@@ -153,12 +152,12 @@ func claudeTurns(records io.Reader) ([]string, error) {
 		switch record.Type {
 		case "user":
 			if said != "" {
-				turns.prompt(awaited(said))
+				turns.prompt(said, awaited(said))
 				return
 			}
 			for _, block := range blocks {
 				if block.Type == "text" {
-					turns.prompt(awaited(block.Text))
+					turns.prompt(block.Text, awaited(block.Text))
 					return
 				}
 			}
@@ -240,7 +239,7 @@ func addressedToTheReader(tool string, input json.RawMessage) string {
 
 // codexTurns reads a Codex session, which records each prompt and each thing
 // the agent says as an event of its own.
-func codexTurns(records io.Reader) ([]string, error) {
+func codexTurns(records io.Reader) ([]Reply, error) {
 	var turns turnsOf
 	err := eachRecord(records, func(line []byte) {
 		var record struct {
@@ -256,7 +255,7 @@ func codexTurns(records io.Reader) ([]string, error) {
 		switch record.Payload.Type {
 		case "user_message":
 			// Not read for when a turn ends, so no turn is waited on.
-			turns.prompt(false)
+			turns.prompt(record.Payload.Message, false)
 		case "agent_message":
 			turns.say(record.Payload.Message)
 		}

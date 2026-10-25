@@ -108,6 +108,8 @@ type Snapshot struct {
 	Original bool `json:"original"`
 	// Held says the replies wait for t to be translated.
 	Held bool `json:"held"`
+	// Picked names the reply picked from the list, when it is not the latest.
+	Picked string `json:"picked,omitempty"`
 }
 
 // SnapshotReply is one reply's translation as far as it had come.
@@ -178,6 +180,10 @@ type Reader struct {
 	// entry on show. Without it the replies are.
 	browse []HistoryEntry
 	at     int
+	// turns is the list of the session's replies l opens, and picked names
+	// the one picked from it while that is on show rather than the latest.
+	turns  turnPicker
+	picked string
 }
 
 // result is one reply's translation as far as it has come.
@@ -220,7 +226,7 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 			}
 		}
 		reader.next = min(max(saved.Next, 0), len(saved.Shown))
-		reader.original, reader.held = saved.Original, saved.Held
+		reader.original, reader.held, reader.picked = saved.Original, saved.Held, saved.Picked
 		// Until the pane's size says where that is, the reader comes back
 		// where it was rather than at the end.
 		reader.follow = false
@@ -236,6 +242,7 @@ func (r Reader) Snapshot() Snapshot {
 		Source: r.options.Source, Whole: r.options.Whole,
 		Shown: r.shown, Context: r.context, Next: r.next,
 		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original, Held: r.held,
+		Picked: r.picked,
 	}
 	for index := range r.shown {
 		kept := SnapshotReply{}
@@ -330,7 +337,7 @@ func (r Reader) refresh() (tea.Model, tea.Cmd) {
 	r.fetch++
 	r.loaded, r.shown, r.context, r.results, r.next = false, nil, nil, nil, 0
 	r.failure, r.original, r.from, r.follow = r.options.Trouble, false, 0, true
-	r.fresh, r.browse = true, nil
+	r.fresh, r.browse, r.picked = true, nil, ""
 	r.canvas.endPulse()
 	fetching := r.fetchReplies()
 	return r, fetching
@@ -368,6 +375,8 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostProbedMsg:
 		r.picker = r.picker.probed(msg)
 		return r, nil
+	case turnsMsg:
+		return r.turnsListed(msg)
 
 	case hideAskedMsg:
 		return r.handOn(r.options.Hide)
@@ -612,6 +621,8 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case r.picker.open:
 		return r.pickKey(key)
+	case r.turns.open:
+		return r.pickTurn(key)
 
 	case key.Type == tea.KeyCtrlO && r.options.Hosts != nil:
 		return r.openPicker()
@@ -650,6 +661,9 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			r.browse, r.follow = nil, true
 			r.keepInView()
 		}
+
+	case key.String() == "l":
+		return r, r.listTurns()
 
 	case key.String() == "[":
 		r.step(-1)
@@ -898,6 +912,9 @@ func (r Reader) View() string {
 	if r.picker.open {
 		return r.pickerView()
 	}
+	if r.turns.open {
+		return r.turnsView()
+	}
 	rows := r.rows()
 	lines := r.lines()
 	total := len(lines)
@@ -923,7 +940,13 @@ func (r Reader) header(line int) string {
 		pieces = append(pieces, r.canvas.pulseGlyph())
 	}
 	said := r.counted()
-	if r.browsing() {
+	switch {
+	case r.turns.open:
+		said = "pick a reply · " + r.turns.position()
+	case r.picked != "" && !r.browsing():
+		said = r.picked
+	}
+	if r.browsing() && !r.turns.open {
 		said = "history " + strconv.Itoa(r.at+1) + "/" + strconv.Itoa(len(r.browse)) + " · " +
 			when(r.browse[r.at].At, time.Now())
 		if r.held {
@@ -997,6 +1020,9 @@ func (r Reader) footer(inner int) string {
 	}
 	if r.options.History != nil {
 		hints = append(hints, key("[ ]", "history"))
+	}
+	if _, ok := r.session(); ok {
+		hints = append(hints, key("l", "replies"))
 	}
 	if r.options.Hide != nil && !r.options.InPane {
 		hints = append(hints, key("h", "hide"))

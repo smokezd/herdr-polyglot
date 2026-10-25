@@ -13,8 +13,12 @@ import (
 
 // Reply is what the agent answered to one prompt, without its tool calls or
 // its reasoning. An empty one is the answer to a prompt the agent is still
-// working on.
-type Reply struct{ Text string }
+// working on. Prompt is what it answered, as the user wrote it; the terminal
+// has none to give.
+type Reply struct {
+	Text   string
+	Prompt string
+}
 
 // Source hands out the agent's latest replies.
 type Source interface {

@@ -809,3 +809,137 @@ func TestThePaneKeyTranslatesAWaitingReplyWithoutT(t *testing.T) {
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
+
+// wholeSession is a session that can also hand out every reply it holds.
+type wholeSession struct {
+	fixedReplies
+	turns []overlay.Turn
+}
+
+func (w *wholeSession) All(context.Context) ([]overlay.Turn, error) {
+	return w.turns, nil
+}
+
+func sessionOf(turns ...overlay.Turn) *wholeSession {
+	session := &wholeSession{turns: turns}
+	for _, turn := range turns {
+		session.replies = append(session.replies, turn.Reply)
+	}
+	return session
+}
+
+var listKey = tea.KeyMsg{Runes: []rune("l"), Type: tea.KeyRunes}
+
+func threeTurns() *wholeSession {
+	return sessionOf(
+		overlay.Turn{Prompt: "<command-name>/plan</command-name>\n<command-args>next step</command-args>", Reply: "plan reply"},
+		overlay.Turn{Prompt: "fix it", Reply: "fixed it\nin two places"},
+		overlay.Turn{Prompt: "thanks", Reply: "welcome"},
+	)
+}
+
+func TestLListsEveryReplyOfTheSessionWithThePromptItAnswered(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "fixed it\nin two places", Translation: "修好了"}}}
+
+	reader := newReader(t, threeTurns(), &upperTranslator{}, overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "l replies")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply · 3/3", "/plan next step", "plan reply", "✓ fix it", "fixed it",
+		"› ", "enter translate")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "pick a reply") {
+		t.Errorf("esc left the list open:\n%s", final)
+	}
+}
+
+func TestAPickedReplyIsTranslatedKnowingTheRepliesBeforeIt(t *testing.T) {
+	t.Parallel()
+	translator := &upperTranslator{}
+
+	reader := newReader(t, threeTurns(), translator, overlay.ReaderOptions{Replies: 1, Context: 2})
+	waitForText(t, reader, "WELCOME")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply · 3/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyUp})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForText(t, reader, "FIXED IT", "reply 2/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	told := translator.told()
+	if len(told) != 2 || told[1] != "plan reply" {
+		t.Errorf("the service was told %q came before, want only the reply before the picked one", told)
+	}
+}
+
+func TestPickingAReplyTranslatedBeforeAsksTheServiceNothing(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{
+		{Original: "plan reply", Translation: "计划"}, {Original: "welcome", Translation: "不客气"},
+	}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, threeTurns(), translator, overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "不客气")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply")
+	reader.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForText(t, reader, "计划", "reply 1/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 0 {
+		t.Errorf("the service was asked %d times, want not at all", len(told))
+	}
+}
+
+func TestWithoutAWholeSessionLDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	for name, options := range map[string]overlay.ReaderOptions{
+		"a session that cannot list its replies": {Replies: 1},
+		"the terminal":                           {Source: "terminal", Service: "deepl", Language: "DE", Whole: true},
+	} {
+		replies := overlay.Replies(&fixedReplies{replies: []string{"answer"}})
+		if options.Whole {
+			replies = sessionOf(overlay.Turn{Reply: "answer"})
+		}
+		reader := newReader(t, replies, &upperTranslator{}, options)
+		waitForText(t, reader, "ANSWER")
+		reader.Send(listKey)
+		reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+		reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+		if final := reader.FinalModel(t).View(); strings.Contains(final, "pick a reply") || strings.Contains(final, "l replies") {
+			t.Errorf("%s offered the list:\n%s", name, final)
+		}
+	}
+}
+
+func TestAPromptReadsInTheListAsItWasTyped(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ prompt, want string }{
+		{"fix the\n  login bug", "fix the login bug"},
+		{
+			"<command-name>/plan</command-name>\n<command-message>plan</command-message>\n<command-args>next step</command-args>",
+			"/plan next step",
+		},
+		{
+			"<task-notification>\n<task-id>ab24f</task-id>\n<status>completed</status>\n" +
+				"<summary>Agent \"Implement fn-148.1\" finished</summary>\n<result>I finished…</result>\n</task-notification>",
+			"Agent \"Implement fn-148.1\" finished",
+		},
+		{"", "#4"},
+	}
+	for _, c := range cases {
+		if got := overlay.PromptLine(c.prompt, 3); got != c.want {
+			t.Errorf("PromptLine(%q) is %q, want %q", c.prompt, got, c.want)
+		}
+	}
+}

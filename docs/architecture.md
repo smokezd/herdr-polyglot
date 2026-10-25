@@ -70,6 +70,11 @@ A reader that would have to ask the service for a reply nobody asked to have
 translated holds it until `t`, showing the newest translation kept meanwhile; a
 `Snapshot` carries the hold, so a popup brought back does not translate either.
 
+A source that can tell its replies apart also hands them all out, each with the
+prompt it answered, as an overlay `Session`; `l` lists them, and the one picked
+is shown and translated in place of the latest, the replies before it going
+along as context.
+
 A reader is a popup or a pane, and herdr gives the two different powers: a popup
 has no pane id and takes every key while it is open, and herdr cannot hide one;
 a pane can be named and split beside the agent without focus, but not sized.

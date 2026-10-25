@@ -246,6 +246,7 @@ In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b
 page at a time, `tab` shows the reply as the agent wrote it, `y` copies all of
 what is on show (the translation, or the original after `tab`) to the clipboard,
 `t` translates a new reply, `[` and `]` step through the ones translated before,
+`l` lists every reply of the session to pick one to translate,
 `ctrl+t` tries again after a failure, `h` hides the popup, `m` moves it, and
 `esc` or `q` closes. Copying uses `pbcopy` on macOS, and `wl-copy`, `xclip` or
 `xsel` on Linux.
@@ -260,6 +261,12 @@ the whole of it. `[` steps back through the earlier ones and `]` forward again,
 past the newest back to the latest reply; `tab` and `y` work on them as on the
 reply. The history is kept in the plugin's state directory and never sent
 anywhere.
+
+`l` lists every reply of the agent's session, oldest at the top, each under the
+prompt it answered — a background task that ended goes by its summary — with a
+✓ on the ones translated already. `enter` translates the one picked, told the
+replies before it as the latest would be; a ✓ one is shown at once. `l` and
+`enter` on the newest goes back to the latest reply.
 
 ## What leaves your machine
 

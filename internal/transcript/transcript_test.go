@@ -315,3 +315,61 @@ func TestASessionClaudeCodeContinuedInAnotherIsReadWhereItWentOn(t *testing.T) {
 		t.Errorf("replies are %q, want %q", got, want)
 	}
 }
+
+func prompts(t *testing.T, source transcript.Source) []string {
+	t.Helper()
+	replies, err := source.Latest(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("Latest returned unexpected error: %v", err)
+	}
+	got := make([]string, len(replies))
+	for i, reply := range replies {
+		got[i] = reply.Prompt
+	}
+	return got
+}
+
+func TestEachClaudeReplyCarriesThePromptItAnswered(t *testing.T) {
+	t.Parallel()
+	herdr, places := claudePane(t)
+
+	got := prompts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", places))
+
+	// The second prompt was never answered in words; the first and third were,
+	// one written as a string and one as a block.
+	if want := []string{"erste Frage", "dritte Frage"}; !slices.Equal(got, want) {
+		t.Errorf("prompts are %q, want %q", got, want)
+	}
+}
+
+func TestEachCodexReplyCarriesThePromptItAnswered(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "sessions", "rollout-2026-06-26T14-37-27-019f.jsonl"),
+		`{"type":"session_meta","payload":{"id":"019f","cwd":"/work"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"erste Frage"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"First."}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"zweite Frage"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"Second."}}`,
+	)
+	herdr := &fakeHerdr{agent: `{"agent":"codex","cwd":"/work","agent_session":{"value":"019f"}}`}
+
+	got := prompts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Codex: home}))
+
+	if want := []string{"erste Frage", "zweite Frage"}; !slices.Equal(got, want) {
+		t.Errorf("prompts are %q, want %q", got, want)
+	}
+}
+
+func TestAPromptStillBeingAnsweredIsCarriedByItsEmptyReply(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, "projects", "-p", "abc-123.jsonl"), firstPrompt, firstAnswer, turnEnded, secondPrompt)
+	herdr := &fakeHerdr{agent: `{"agent":"claude","cwd":"/p","agent_session":{"value":"abc-123"}}`}
+
+	got := prompts(t, transcript.Resolve(context.Background(), herdr, "w1:p1", transcript.Places{Claude: home}))
+
+	if want := []string{"erste Frage", "zweite Frage"}; !slices.Equal(got, want) {
+		t.Errorf("prompts are %q, want %q", got, want)
+	}
+}

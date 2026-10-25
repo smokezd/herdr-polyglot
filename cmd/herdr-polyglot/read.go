@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -199,6 +200,23 @@ func (r *replies) Latest(ctx context.Context, n int) ([]string, error) {
 		texts[i] = reply.Text
 	}
 	return texts, nil
+}
+
+// All is every reply of the session with the prompt it answered, for the list
+// a reply is picked from. A prompt the agent has said nothing to yet has no
+// reply to pick.
+func (r *replies) All(ctx context.Context) ([]overlay.Turn, error) {
+	found, err := r.source().Latest(ctx, math.MaxInt)
+	if err != nil {
+		return nil, err
+	}
+	turns := make([]overlay.Turn, 0, len(found))
+	for _, reply := range found {
+		if reply.Text != "" {
+			turns = append(turns, overlay.Turn{Prompt: reply.Prompt, Reply: reply.Text})
+		}
+	}
+	return turns, nil
 }
 
 // agentHomes are where Claude Code and Codex keep their sessions, moved where

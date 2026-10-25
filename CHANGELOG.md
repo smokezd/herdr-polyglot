@@ -15,6 +15,9 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back and forth through the earlier ones. A new reply waits for `t`: the popup
   opens on the latest translation kept, and the service is asked nothing until
   then.
+- In the reader, `l` lists every reply of the *Claude Code* or *Codex* session
+  under the prompt it answered, ✓ on those translated already, and `enter`
+  translates the one picked.
 - LM Studio can run on more than one machine: `HERDR_POLYGLOT_LMSTUDIO_HOSTS`
   names them as `name=url,…`, each with its own model and key if it needs one, and
   `ctrl+o` in any popup lists them, says which are up, and switches. The choice is
