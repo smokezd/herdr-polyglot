@@ -63,3 +63,6 @@ func PreviewFailed(why string) tea.Msg {
 
 // PromptLine is a prompt as its row in the list of replies reads it.
 func PromptLine(prompt string, index int) string { return promptLine(prompt, index) }
+
+// PromptText is a prompt whole, as the preview of a row shows it.
+func PromptText(prompt string, index int) string { return promptText(prompt, index) }

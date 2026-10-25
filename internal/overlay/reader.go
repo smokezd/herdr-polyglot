@@ -946,6 +946,8 @@ func (r Reader) header(line int) string {
 	}
 	said := r.counted()
 	switch {
+	case r.turns.open && r.turns.previewing:
+		said = "preview " + r.turns.position()
 	case r.turns.open:
 		said = "pick a reply · " + r.turns.position()
 	case r.picked != "" && !r.browsing():

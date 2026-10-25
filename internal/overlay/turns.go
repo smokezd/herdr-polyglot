@@ -32,6 +32,10 @@ type turnPicker struct {
 	// kept says which replies the history has a translation of already, so
 	// picking them costs nothing.
 	kept []bool
+	// previewing shows the turn at the cursor whole, prompt and reply as they
+	// were written, scrolled to from.
+	previewing bool
+	from       int
 }
 
 type turnsMsg struct {
@@ -61,6 +65,8 @@ func (p turnPicker) key(key tea.KeyMsg, page int) (picker turnPicker, picked boo
 	case key.Type == tea.KeyEnter:
 		p.open = false
 		return p, true
+	case key.Type == tea.KeyRight, key.String() == "p":
+		p.previewing, p.from = true, 0
 	case key.Type == tea.KeyUp, key.String() == "k":
 		p.cursor--
 	case key.Type == tea.KeyDown, key.String() == "j":
@@ -125,7 +131,10 @@ func (p turnPicker) position() string {
 // footer names the keys the list answers to.
 func (p turnPicker) footer(look styles, inner int) string {
 	key := func(name, does string) string { return look.key.Render(name) + look.hint.Render(" "+does) }
-	hints := []string{key("↑↓", "move"), key("enter", "translate"), key("esc", "back")}
+	hints := []string{key("↑↓", "move"), key("p", "preview"), key("enter", "translate"), key("esc", "back")}
+	if p.previewing {
+		hints = []string{key("↑↓", "scroll"), key("enter", "translate"), key("esc", "list")}
+	}
 	return spread(" "+strings.Join(hints, look.hint.Render(" · ")), "", inner)
 }
 
@@ -134,8 +143,9 @@ var (
 	// echoed is the name of a slash command said a second time.
 	echoed = regexp.MustCompile(`(?s)<command-message>.*?</command-message>`)
 	// summary is the line Claude Code gives a task it ran in the background
-	// when it tells the agent the task is over.
+	// when it tells the agent the task is over, and outcome what the task said.
 	summary = regexp.MustCompile(`(?s)<summary>(.*?)</summary>`)
+	outcome = regexp.MustCompile(`(?s)<result>(.*?)</result>`)
 )
 
 // promptLine is a prompt as one line, without the tags a slash command is
@@ -149,6 +159,35 @@ func promptLine(prompt string, index int) string {
 	prompt = tag.ReplaceAllString(echoed.ReplaceAllString(prompt, " "), " ")
 	if line := strings.Join(strings.Fields(prompt), " "); line != "" {
 		return line
+	}
+	return "#" + strconv.Itoa(index+1)
+}
+
+// promptText is a prompt whole, as the preview shows it: without the tags it
+// was recorded in, and a background task that ended as its summary and what it
+// said, not the bookkeeping around them.
+func promptText(prompt string, index int) string {
+	if said := summary.FindStringSubmatch(prompt); said != nil {
+		task := said[1]
+		if result := outcome.FindStringSubmatch(prompt); result != nil {
+			task += "\n\n" + result[1]
+		}
+		prompt = task
+	}
+	var lines []string
+	for _, line := range strings.Split(prompt, "\n") {
+		bare := strings.TrimRight(tag.ReplaceAllString(echoed.ReplaceAllString(line, ""), ""), " \t")
+		switch {
+		case bare == "" && strings.TrimSpace(line) != "":
+			// A line that held only tags held nothing to read.
+			continue
+		case bare == "" && (len(lines) == 0 || lines[len(lines)-1] == ""):
+			continue
+		}
+		lines = append(lines, bare)
+	}
+	if text := strings.TrimSpace(strings.Join(lines, "\n")); text != "" {
+		return text
 	}
 	return "#" + strconv.Itoa(index+1)
 }
@@ -195,6 +234,9 @@ func (r Reader) turnsListed(msg turnsMsg) (tea.Model, tea.Cmd) {
 }
 
 func (r Reader) pickTurn(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if r.turns.previewing {
+		return r.previewKey(key)
+	}
 	var picked bool
 	r.turns, picked = r.turns.key(key, fits(r.rows()))
 	if !picked {
@@ -228,7 +270,73 @@ func (r Reader) translatePicked(index int) (tea.Model, tea.Cmd) {
 	return r, started
 }
 
+// previewKey scrolls the turn shown whole, translates it, or goes back to the
+// list where it was.
+func (r Reader) previewKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	rows := r.rows()
+	bottom := max(len(r.previewLines())-rows, 0)
+	from := r.turns.from
+	switch {
+	case key.Type == tea.KeyEsc, key.Type == tea.KeyLeft, key.String() == "p":
+		r.turns.previewing = false
+		return r, nil
+	case key.Type == tea.KeyEnter:
+		r.turns.previewing, r.turns.open = false, false
+		return r.translatePicked(r.turns.cursor)
+	case key.Type == tea.KeyUp, key.String() == "k":
+		from--
+	case key.Type == tea.KeyDown, key.String() == "j":
+		from++
+	case key.Type == tea.KeyPgUp, key.Type == tea.KeyCtrlB:
+		from -= rows
+	case key.Type == tea.KeyPgDown, key.Type == tea.KeySpace:
+		from += rows
+	case key.Type == tea.KeyHome, key.String() == "g":
+		from = 0
+	case key.Type == tea.KeyEnd, key.String() == "G":
+		from = bottom
+	}
+	r.turns.from = min(max(from, 0), bottom)
+	return r, nil
+}
+
+// previewLines are the prompt at the cursor and its reply, whole and as
+// written, wrapped to the box and styled line by line.
+func (r Reader) previewLines() []string {
+	look := r.canvas.styles
+	width := r.canvas.contentWidth()
+	turn := r.turns.turns[r.turns.cursor]
+	var lines []string
+	add := func(text string, style lipgloss.Style) {
+		for _, line := range strings.Split(wrapped(text, width), "\n") {
+			lines = append(lines, style.Render(line))
+		}
+	}
+	add(promptText(turn.Prompt, r.turns.cursor), look.bright)
+	add("", look.text)
+	add(strings.Repeat("─", min(width, 24)), look.mark)
+	add("", look.text)
+	add(turn.Reply, look.text)
+	return lines
+}
+
+func (r Reader) previewView() string {
+	rows := r.rows()
+	lines := r.previewLines()
+	total := len(lines)
+	from := min(r.turns.from, max(total-rows, 0))
+	shown := strings.Join(lines[from:min(from+rows, total)], "\n")
+	box := r.canvas.labelled(
+		r.canvas.box(true).Height(rows).Render(r.canvas.scrolled(shown, from, rows, total)),
+		strings.TrimSpace("replies "+howFarThrough(from, rows, total)), true)
+	line := lipgloss.Width(box)
+	return strings.Join([]string{r.header(line), box, r.turns.footer(r.canvas.styles, line-1)}, "\n")
+}
+
 func (r Reader) turnsView() string {
+	if r.turns.previewing {
+		return r.previewView()
+	}
 	rows := r.rows()
 	look := r.canvas.styles
 	body := r.turns.rows(look, r.canvas.contentWidth(), rows)

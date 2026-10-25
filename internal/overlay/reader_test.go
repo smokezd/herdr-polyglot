@@ -952,3 +952,60 @@ func TestAPromptReadsInTheListAsItWasTyped(t *testing.T) {
 		}
 	}
 }
+
+func TestPShowsTheWholePromptAndReplyOfARowAndEnterTranslatesIt(t *testing.T) {
+	t.Parallel()
+	session := sessionOf(
+		overlay.Turn{Prompt: "first question", Reply: "first answer"},
+		overlay.Turn{Prompt: "<command-name>/review</command-name>\n<command-message>review</command-message>\n" +
+			"<command-args>the login code</command-args>\nand the tests too", Reply: numbered(60)},
+		overlay.Turn{Prompt: "thanks", Reply: "welcome"},
+	)
+	translator := &upperTranslator{}
+
+	reader := newReader(t, session, translator, overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "WELCOME")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply · 3/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyUp})
+	reader.Send(tea.KeyMsg{Runes: []rune("p"), Type: tea.KeyRunes})
+	waitForText(t, reader, "preview 2/3", "/review", "the login code", "and the tests too", "zeile 0", "esc list")
+	reader.Send(tea.KeyMsg{Runes: []rune("G"), Type: tea.KeyRunes})
+	waitForText(t, reader, "zeile 59", "100%")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	waitForText(t, reader, "pick a reply · 2/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyRight})
+	waitForText(t, reader, "preview 2/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForText(t, reader, "ZEILE 0", "reply 2/3")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 2 {
+		t.Errorf("the service was asked %d times, want for the latest and the one picked", len(told))
+	}
+}
+
+func TestAPromptIsPreviewedWholeWithoutItsTags(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct{ prompt, want string }{
+		{"fix the\n\n\n  login bug  ", "fix the\n\n  login bug"},
+		{
+			"<command-name>/plan</command-name>\n<command-message>plan</command-message>\n<command-args>next step</command-args>",
+			"/plan\nnext step",
+		},
+		{
+			"<task-notification>\n<task-id>ab24f</task-id>\n<status>completed</status>\n" +
+				"<summary>Agent \"Implement fn-148.1\" finished</summary>\n<note>bookkeeping</note>\n" +
+				"<result>I finished.\n\nAll green.</result>\n</task-notification>",
+			"Agent \"Implement fn-148.1\" finished\n\nI finished.\n\nAll green.",
+		},
+		{"<local-command-stdout></local-command-stdout>", "#4"},
+	}
+	for _, c := range cases {
+		if got := overlay.PromptText(c.prompt, 3); got != c.want {
+			t.Errorf("PromptText(%q) is %q, want %q", c.prompt, got, c.want)
+		}
+	}
+}

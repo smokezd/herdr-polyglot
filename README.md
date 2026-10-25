@@ -265,7 +265,9 @@ anywhere.
 
 `l` lists every reply of the agent's session, oldest at the top, each under the
 prompt it answered — a background task that ended goes by its summary — with a
-✓ on the ones translated already. `enter` translates the one picked, told the
+✓ on the ones translated already. `p` or `→` shows the prompt and the reply
+whole, as they were written, to scroll through before choosing, and `esc` goes
+back to the list. `enter` translates the one picked, told the
 replies before it as the latest would be; a ✓ one is shown at once. `l` and
 `enter` on the newest goes back to the latest reply.
 
