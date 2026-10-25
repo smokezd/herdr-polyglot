@@ -46,10 +46,10 @@ func TestARunningReaderHearsWhatItIsTold(t *testing.T) {
 		t.Fatal("the reader heard nothing")
 	}
 
-	if err := store.Tell(context.Background(), "w1:p1", readstate.Popup, readstate.Hide); !errors.Is(err, readstate.ErrNotOpen) {
+	if err := store.Tell(context.Background(), "w1:p1", readstate.Popup, readstate.Move); !errors.Is(err, readstate.ErrNotOpen) {
 		t.Errorf("telling a popup nobody opened returned %v, want ErrNotOpen", err)
 	}
-	if err := store.Tell(context.Background(), "w1:p2", readstate.Pane, readstate.Hide); !errors.Is(err, readstate.ErrNotOpen) {
+	if err := store.Tell(context.Background(), "w1:p2", readstate.Pane, readstate.Move); !errors.Is(err, readstate.ErrNotOpen) {
 		t.Errorf("telling another agent's reader returned %v, want ErrNotOpen", err)
 	}
 }
@@ -89,23 +89,23 @@ func TestAReaderPaneActsForTheAgentBesideIt(t *testing.T) {
 	}
 }
 
-func TestHiddenAndHandedOnContentAreKeptApart(t *testing.T) {
+func TestWhatIsHandedOnIsKeptForEachPlaceAndAgent(t *testing.T) {
 	t.Parallel()
 	store := readstate.New(shortDir(t))
 
-	if err := store.Hidden("w1:p1").Save("hidden"); err != nil {
+	if err := store.Handoff("w1:p1", readstate.Pane).Save("to the pane"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Handoff("w1:p1", readstate.Pane).Save("moving"); err != nil {
+	if err := store.Handoff("w1:p1", readstate.Popup).Save("to the popup"); err != nil {
 		t.Fatal(err)
 	}
-	if kept, _ := store.Hidden("w1:p1").Load(); kept != "hidden" {
-		t.Errorf("hidden is %q", kept)
+	if kept, _ := store.Handoff("w1:p1", readstate.Pane).Load(); kept != "to the pane" {
+		t.Errorf("the pane's handoff is %q", kept)
 	}
-	if kept, _ := store.Handoff("w1:p1", readstate.Pane).Load(); kept != "moving" {
-		t.Errorf("handoff is %q", kept)
+	if kept, _ := store.Handoff("w1:p1", readstate.Popup).Load(); kept != "to the popup" {
+		t.Errorf("the popup's handoff is %q", kept)
 	}
-	if kept, _ := store.Hidden("w1:p2").Load(); kept != "" {
-		t.Errorf("another agent's hidden popup is %q, want nothing", kept)
+	if kept, _ := store.Handoff("w1:p2", readstate.Pane).Load(); kept != "" {
+		t.Errorf("another agent's handoff is %q, want nothing", kept)
 	}
 }

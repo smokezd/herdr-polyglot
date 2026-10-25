@@ -279,17 +279,17 @@ func TestAStreamedAnswerStaysAtItsTopWhileItGrows(t *testing.T) {
 	}
 }
 
-func TestAHiddenPopupComesBackAsItWasWithoutAskingTheServiceAgain(t *testing.T) {
+func TestAReaderTakingOverShowsWhatWasShownWithoutAskingTheServiceAgain(t *testing.T) {
 	t.Parallel()
 	translator := &upperTranslator{}
 	var kept overlay.Snapshot
 
 	first := newReader(t, &fixedReplies{replies: []string{"first answer"}}, translator, overlay.ReaderOptions{
 		Replies: 1,
-		Hide:    func(saved overlay.Snapshot) error { kept = saved; return nil },
+		Move:    func(saved overlay.Snapshot) error { kept = saved; return nil },
 	})
-	waitForText(t, first, "FIRST ANSWER", "h hide")
-	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	waitForText(t, first, "FIRST ANSWER", "m → pane")
+	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
 	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
 	if len(kept.Results) != 1 || kept.Results[0].Text != "FIRST ANSWER" || kept.Next != 1 {
@@ -363,24 +363,6 @@ func TestMovingHandsWhatIsShownToTheOtherPlace(t *testing.T) {
 	}
 }
 
-func TestAPaneCannotBeHidden(t *testing.T) {
-	t.Parallel()
-	hidden := false
-
-	reader := newReader(t, &fixedReplies{replies: []string{"answer"}}, &upperTranslator{}, overlay.ReaderOptions{
-		Replies: 1, InPane: true,
-		Hide: func(overlay.Snapshot) error { hidden = true; return nil },
-	})
-	waitForText(t, reader, "ANSWER")
-	reader.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
-	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
-	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
-
-	if hidden {
-		t.Error("a pane was hidden")
-	}
-}
-
 // numbered is a reply of that many lines, each saying which it is.
 func numbered(lines int) string {
 	text := make([]string, lines)
@@ -399,19 +381,19 @@ func readerAt(t *testing.T, width int, options overlay.ReaderOptions) *teatest.T
 		teatest.WithInitialTermSize(width, 24))
 }
 
-func TestAHiddenPopupComesBackScrolledWhereItWas(t *testing.T) {
+func TestAReaderTakingOverIsScrolledWhereTheOneBeforeWas(t *testing.T) {
 	t.Parallel()
 	var kept overlay.Snapshot
 
 	first := readerAt(t, 80, overlay.ReaderOptions{
-		Hide: func(saved overlay.Snapshot) error { kept = saved; return nil },
+		Move: func(saved overlay.Snapshot) error { kept = saved; return nil },
 	})
 	waitForText(t, first, "ZEILE 0")
 	for range 40 {
 		first.Send(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	waitForText(t, first, "ZEILE 40")
-	first.Send(tea.KeyMsg{Runes: []rune("h"), Type: tea.KeyRunes})
+	first.Send(tea.KeyMsg{Runes: []rune("m"), Type: tea.KeyRunes})
 	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 	if kept.From != 40 || kept.AtEnd {
 		t.Fatalf("kept the view at row %d (at the end: %v), want row 40", kept.From, kept.AtEnd)
@@ -784,17 +766,17 @@ func TestWithNothingKeptYetANewReplyStillWaitsForT(t *testing.T) {
 	}
 }
 
-func TestAWaitingReplyStillWaitsWhenThePopupComesBack(t *testing.T) {
+func TestAWaitingReplyStillWaitsInTheReaderThatTakesOver(t *testing.T) {
 	t.Parallel()
 	translator := &upperTranslator{}
 	var saved overlay.Snapshot
 
 	first := newReader(t, &fixedReplies{replies: []string{"not yet"}}, translator, overlay.ReaderOptions{
 		Replies: 1, History: &keptHistory{},
-		Hide: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
+		Move: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
 	})
 	waitForText(t, first, "t translate")
-	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
 	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
 	again := newReader(t, &fixedReplies{}, translator,
@@ -1052,7 +1034,7 @@ func TestMarkdownTurnedOnRendersTheOriginalAndTheHistoryToo(t *testing.T) {
 	reader := newReader(t, &fixedReplies{replies: []string{"**bold** words"}}, &upperTranslator{},
 		overlay.ReaderOptions{
 			Replies: 1, Markdown: true, MarkdownStyle: "dark", History: kept,
-			Hide: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
+			Move: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
 		})
 	// A new reply waits for t on the history, rendered.
 	waitForPlain(t, reader, "早", "M plain")
@@ -1060,14 +1042,14 @@ func TestMarkdownTurnedOnRendersTheOriginalAndTheHistoryToo(t *testing.T) {
 	waitForPlain(t, reader, "BOLD WORDS")
 	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
 	waitForPlain(t, reader, "bold words")
-	reader.Send(tea.KeyMsg{Runes: []rune("h"), Type: tea.KeyRunes})
+	reader.Send(tea.KeyMsg{Runes: []rune("m"), Type: tea.KeyRunes})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
 	if final := reader.FinalModel(t).View(); strings.Contains(final, "**bold**") || strings.Contains(final, "_早_") {
 		t.Errorf("the markdown was shown as written:\n%s", final)
 	}
 	if !saved.Markdown {
-		t.Error("a hidden popup forgot it was rendering markdown")
+		t.Error("a reader moving elsewhere forgot it was rendering markdown")
 	}
 }
 

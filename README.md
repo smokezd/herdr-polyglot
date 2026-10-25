@@ -233,17 +233,13 @@ command = "wazum.polyglot.read-toggle"
 
 - The pane key translates the latest reply again in the pane that is already
   open, dropping what it showed.
-- `h` in the popup hides it. The popup key then brings it back as it was, without
-  translating again; once a popup is closed with `esc`, the key reads the replies
-  afresh.
 - `m` in either, or the toggle key, opens what is on show in the other place.
-  A hidden popup is moved too.
 
-A popup takes every key while it is open, herdr's own included, so hiding it is
-`h`, not the key that opened it. A reply still being translated when its reader
-is hidden or moved is translated again by the one that takes over; finished ones
-are not. herdr sizes a pane itself, so the reading width and height apply to the
-popup only.
+Closing a popup costs nothing to come back from: what it translated is kept,
+and the popup key shows it again without asking the service. A reply still
+being translated when its reader is moved is translated again by the one that
+takes over; finished ones are not. herdr sizes a pane itself, so the reading
+width and height apply to the popup only.
 
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b` a
 page at a time, `tab` shows the reply as the agent wrote it, `M` renders it as
@@ -251,7 +247,7 @@ markdown, the way glow does, or as plain text again, `y` copies all of
 what is on show (the translation, or the original after `tab`) to the clipboard,
 `t` translates a new reply, `[` and `]` step through the ones translated before,
 `l` lists every reply of the session to pick one to translate,
-`ctrl+t` tries again after a failure, `h` hides the popup, `m` moves it, and
+`ctrl+t` tries again after a failure, `m` moves the reader, and
 `esc` or `q` closes. Copying uses `pbcopy` on macOS, and `wl-copy`, `xclip` or
 `xsel` on Linux.
 

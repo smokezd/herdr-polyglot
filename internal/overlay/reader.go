@@ -69,15 +69,13 @@ type ReaderOptions struct {
 	Trouble error
 	Pulse   bool
 	// InPane says the reader is a pane beside the agent rather than a popup
-	// over it. A pane is not hidden: it is simply not looked at.
+	// over it.
 	InPane bool
-	// Resumed is what the reader was showing before it was hidden or moved. It
+	// Resumed is what a reader was showing before it moved here. It
 	// is shown again as it was, and only a reply left unfinished is translated.
 	Resumed *Snapshot
-	// Hide keeps what is on show for the popup to come back to, and Move hands
-	// it to a reader opened in the other place. Without them the keys do
-	// nothing.
-	Hide func(Snapshot) error
+	// Move hands what is on show to a reader opened in the other place.
+	// Without it m does nothing.
 	Move func(Snapshot) error
 	// Hosts and ChooseHost are as for the prompt popup: ctrl+o picks the machine
 	// the replies are translated on, and they are translated again there.
@@ -275,7 +273,6 @@ type (
 		err     error
 	}
 	// What a reader is told from outside, by a key pressed elsewhere.
-	hideAskedMsg    struct{}
 	moveAskedMsg    struct{}
 	refreshAskedMsg struct{}
 	// waitedMsg is time to look again for an answer the agent has yet to give.
@@ -303,9 +300,8 @@ type (
 	}
 )
 
-// HideAsked, MoveAsked and RefreshAsked are what a running reader is told to
+// MoveAsked and RefreshAsked are what a running reader is told to
 // do by a key pressed outside it.
-func HideAsked() tea.Msg    { return hideAskedMsg{} }
 func MoveAsked() tea.Msg    { return moveAskedMsg{} }
 func RefreshAsked() tea.Msg { return refreshAskedMsg{} }
 
@@ -392,8 +388,6 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case turnsMsg:
 		return r.turnsListed(msg)
 
-	case hideAskedMsg:
-		return r.handOn(r.options.Hide)
 	case moveAskedMsg:
 		return r.handOn(r.options.Move)
 	case refreshAskedMsg:
@@ -644,8 +638,6 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Type == tea.KeyEsc, key.String() == "q":
 		return r, tea.Quit
 
-	case key.String() == "h" && !r.options.InPane:
-		return r.handOn(r.options.Hide)
 	case key.String() == "m":
 		return r.handOn(r.options.Move)
 
@@ -1056,9 +1048,6 @@ func (r Reader) footer(inner int) string {
 	}
 	if _, ok := r.session(); ok {
 		hints = append(hints, key("l", "replies"))
-	}
-	if r.options.Hide != nil && !r.options.InPane {
-		hints = append(hints, key("h", "hide"))
 	}
 	if r.options.Move != nil {
 		hints = append(hints, key("m", "→ "+r.elsewhere()))

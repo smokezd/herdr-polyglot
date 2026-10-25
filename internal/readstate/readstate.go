@@ -1,6 +1,6 @@
 // Package readstate keeps what the reader of an agent's replies has to hand
-// on between processes: what a hidden popup was showing, what a reader moving
-// from a popup to a pane or back carries with it, which agent a reader pane
+// on between processes: what a reader moving from a popup to a pane or back
+// carries with it, which agent a reader pane
 // belongs to, and a line to a reader that is running, so a key pressed
 // elsewhere can tell it what to do.
 package readstate
@@ -39,7 +39,6 @@ func (p Place) Other() Place {
 
 // The words a running reader understands.
 const (
-	Hide    = "hide"
 	Refresh = "refresh"
 	Move    = "move"
 )
@@ -60,12 +59,6 @@ type Store struct{ directory string }
 
 func New(directory string) Store {
 	return Store{directory: directory}
-}
-
-// Hidden is what a popup over the agent was showing when it was hidden, kept
-// until the popup is opened again.
-func (s Store) Hidden(agent string) draft.Slot {
-	return draft.NewStore(s.directory).Of("read-hidden").For(agent)
 }
 
 // Handoff is what a reader moving to the other place carries there.

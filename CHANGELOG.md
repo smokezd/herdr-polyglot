@@ -42,8 +42,7 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `<think>` tags.
 - The agent's replies can be read in a pane beside it that leaves the keyboard
   where it was: `wazum.polyglot.read-pane`, which translates again in the pane
-  already open. `h` hides the reading popup and its key brings it back without
-  translating again; `m`, or `wazum.polyglot.read-toggle`, moves what is on show
+  already open. `m`, or `wazum.polyglot.read-toggle`, moves what is on show
   between popup and pane.
 - A *Claude Code* reply that asks you something now has the question and its
   numbered options in it, and one that asks you to approve a plan has the plan.

@@ -18,7 +18,7 @@ back to the same pane through the *herdr* CLI: `agent prompt` to send it, or
 | `translation` | The `Translator` and `Provider` ports, the registry of services, the sentence-level cache used for previews, and the decorator that keeps code out of a translation. |
 | `deepl`, `google`, `command`, `lmstudio` | Services behind those ports: two hosts, one program on the machine and a language model served on it. |
 | `herdr` | Talking to *herdr*: the CLI runner, the two delivery targets, the socket. |
-| `readstate` | What a reader hands on between processes — a hidden popup's content, what a reader moving to the other place carries, which agent a reader pane belongs to — and a Unix socket per running reader, so a key pressed in herdr can tell it to translate again, hide or move. |
+| `readstate` | What a reader hands on between processes — what a reader moving to the other place carries, which agent a reader pane belongs to — and a Unix socket per running reader, so a key pressed in herdr can tell it to translate again or move. |
 | `history` | The replies a reader translated, the last 100 for each project, found by the nearest folder up from the agent's that holds a `.git`. |
 | `transcript` | What the agent in a pane replied: its *Claude Code* or *Codex* session file, split into one reply per prompt, or else the terminal's recent output. |
 | `overlay` | The *Bubble Tea* program: the draft box, the header and footer, the keys. |
@@ -76,12 +76,12 @@ is shown and translated in place of the latest, the replies before it going
 along as context.
 
 A reader is a popup or a pane, and herdr gives the two different powers: a popup
-has no pane id and takes every key while it is open, and herdr cannot hide one;
-a pane can be named and split beside the agent without focus, but not sized.
-So hiding is the reader keeping a `Snapshot` of what it shows in the state
-directory and exiting, and the popup key brings that snapshot back instead of
-translating. Moving is the same snapshot handed to a reader opened in the other
-place, which the moving one starts before it exits. `open` decides what each key
+has no pane id and takes every key while it is open; a pane can be named and
+split beside the agent without focus, but not sized. Moving is the reader
+keeping a `Snapshot` of what it shows in the state directory and exiting, after
+starting a reader in the other place that shows the snapshot again. A popup is
+not hidden: closed and opened again, it shows what it translated from the
+history. `open` decides what each key
 does in `readAction`; a key reaches a running reader through its socket, named
 after the agent pane and the place.
 

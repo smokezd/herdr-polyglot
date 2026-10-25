@@ -28,8 +28,8 @@ import (
 
 // runReader shows the agent's latest replies, translated into the language
 // they are read in, in a popup over the agent or a pane beside it. It keeps no
-// draft and delivers nothing. A reader hidden or moved hands on what it shows,
-// and the one that takes over shows it again without asking the service twice.
+// draft and delivers nothing. A reader moved hands on what it shows, and the
+// one that takes over shows it again without asking the service twice.
 func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, runner herdr.ExecRunner) error {
 	chosen := chooseReplyService(hosts.applied())
 	store := readstate.New(settings.StateDir)
@@ -39,11 +39,6 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		place = readstate.Pane
 	}
 	resumed := takeOver(store, agent, place, os.Getenv(resumeEnv))
-	if place == readstate.Popup {
-		// A popup open now replaces whatever an earlier one hid: closing this
-		// one must leave nothing to come back to.
-		_ = store.Hidden(agent).Clear()
-	}
 
 	// The replies are only looked for when there is no earlier reader's to
 	// show, or once they are asked for again.
@@ -84,9 +79,6 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		store:    history.New(settings.StateDir, history.Root(transcript.Dir(ctx, runner, agent))),
 		language: options.Language,
 	}
-	if place == readstate.Popup {
-		options.Hide = func(saved overlay.Snapshot) error { return keep(store.Hidden(agent), &saved) }
-	}
 	if resumed == nil {
 		source := found.source()
 		options.Source, options.Whole = source.Name(), source.Whole()
@@ -96,15 +88,13 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		overlay.NewReader(ctx, found, replyTranslator(chosen.translator), options), tea.WithContext(ctx))
 
 	// A key pressed in herdr reaches the reader through its line: translate
-	// again, hide, move.
+	// again, move.
 	if listener, err := store.Listen(agent, place); err == nil {
 		defer listener.Close()
 		go readstate.Serve(listener, func(word string) {
 			switch word {
 			case readstate.Refresh:
 				program.Send(overlay.RefreshAsked())
-			case readstate.Hide:
-				program.Send(overlay.HideAsked())
 			case readstate.Move:
 				program.Send(overlay.MoveAsked())
 			}
@@ -120,15 +110,10 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 // takeOver reads what an earlier reader handed on, and clears it: it is shown
 // once, by this reader.
 func takeOver(store readstate.Store, agent string, place readstate.Place, resume string) *overlay.Snapshot {
-	var slot draft.Slot
-	switch resume {
-	case resumeHidden:
-		slot = store.Hidden(agent)
-	case resumeHandoff:
-		slot = store.Handoff(agent, place)
-	default:
+	if resume != resumeHandoff {
 		return nil
 	}
+	slot := store.Handoff(agent, place)
 	kept, err := slot.Load()
 	_ = slot.Clear()
 	if err != nil || kept == "" {
