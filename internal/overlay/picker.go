@@ -258,6 +258,7 @@ func (r Reader) pickKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (r Reader) useHost(name string) (tea.Model, tea.Cmd) {
 	translator, service, trouble := r.options.ChooseHost(name)
 	r.translator, r.options.Service, r.options.Trouble = translator, service, trouble
+	r.fresh = true
 	r.stop()
 	r.attempt++
 	r.failure = trouble

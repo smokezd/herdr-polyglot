@@ -569,3 +569,158 @@ func TestACopyThatFailsSaysWhy(t *testing.T) {
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
+
+// keptHistory is a history in memory, in the reader's own words.
+type keptHistory struct {
+	mu      sync.Mutex
+	entries []overlay.HistoryEntry
+}
+
+func (k *keptHistory) Entries() []overlay.HistoryEntry {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return append([]overlay.HistoryEntry(nil), k.entries...)
+}
+
+func (k *keptHistory) Find(original string) (string, bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	for index := len(k.entries) - 1; index >= 0; index-- {
+		if k.entries[index].Original == original {
+			return k.entries[index].Translation, true
+		}
+	}
+	return "", false
+}
+
+func (k *keptHistory) Remember(original, translation string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.entries = append(k.entries, overlay.HistoryEntry{Original: original, Translation: translation, At: time.Now()})
+}
+
+func (k *keptHistory) originals() []string {
+	var got []string
+	for _, kept := range k.Entries() {
+		got = append(got, kept.Original)
+	}
+	return got
+}
+
+func TestAReplyAlreadyTranslatedIsShownFromTheHistoryWithoutAskingTheService(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "known answer", Translation: "已知的回答"}}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"known answer"}}, translator,
+		overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "已知的回答")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 0 {
+		t.Errorf("the service was asked %d times, want not at all", len(told))
+	}
+}
+
+func TestTryingAgainTranslatesAReplyTheHistoryHasAndKeepsTheNewTranslation(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "known answer", Translation: "stale"}}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"known answer"}}, translator,
+		overlay.ReaderOptions{Replies: 1, History: kept, InPane: true})
+	waitForText(t, reader, "stale")
+	reader.Send(overlay.RefreshAsked())
+	waitForText(t, reader, "KNOWN ANSWER")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if found, _ := kept.Find("known answer"); found != "KNOWN ANSWER" {
+		t.Errorf("the history holds %q, want the new translation", found)
+	}
+}
+
+func TestATranslatedReplyIsKeptButTheTerminalIsNot(t *testing.T) {
+	t.Parallel()
+
+	kept := &keptHistory{}
+	reader := newReader(t, &fixedReplies{replies: []string{"an answer"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "AN ANSWER")
+	teatest.WaitFor(t, reader.Output(), func([]byte) bool { return len(kept.Entries()) == 1 },
+		teatest.WithDuration(3*time.Second))
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	if got := kept.originals(); !slices.Equal(got, []string{"an answer"}) {
+		t.Errorf("the history holds %q, want the reply", got)
+	}
+
+	terminal := &keptHistory{}
+	reader = newReader(t, &fixedReplies{replies: []string{"$ ls"}}, &upperTranslator{},
+		overlay.ReaderOptions{Source: "terminal", Service: "deepl", Language: "DE", Whole: true, History: terminal})
+	waitForText(t, reader, "$ LS")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+	if got := terminal.originals(); len(got) != 0 {
+		t.Errorf("the terminal's output was kept: %q", got)
+	}
+}
+
+func TestBracketsStepThroughTheHistoryAndBackToTheLatest(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{
+		{Original: "first", Translation: "第一", At: time.Now()},
+		{Original: "second", Translation: "第二", At: time.Now()},
+	}}
+	board := &clipboard{}
+	older := tea.KeyMsg{Runes: []rune("["), Type: tea.KeyRunes}
+	newer := tea.KeyMsg{Runes: []rune("]"), Type: tea.KeyRunes}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"latest"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1, History: kept, Copy: board.copy})
+	waitForText(t, reader, "LATEST", "[ ] history")
+	reader.Send(older)
+	// The latest reply is kept too, but it is on show already: the history
+	// starts before it.
+	waitForText(t, reader, "第二", "history 2/2")
+	reader.Send(older)
+	waitForText(t, reader, "第一", "history 1/2")
+	reader.Send(older)
+	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
+	waitForText(t, reader, "first", "original")
+	reader.Send(tea.KeyMsg{Runes: []rune("y"), Type: tea.KeyRunes})
+	teatest.WaitFor(t, reader.Output(), func([]byte) bool { return len(board.copied()) == 1 },
+		teatest.WithDuration(3*time.Second))
+	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
+	reader.Send(newer)
+	reader.Send(newer)
+	reader.Send(newer)
+	waitForText(t, reader, "1 reply")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if got := board.copied(); !slices.Equal(got, []string{"first"}) {
+		t.Errorf("copied %q, want the oldest reply as written", got)
+	}
+	final := reader.FinalModel(t).View()
+	if !strings.Contains(final, "LATEST") || strings.Contains(final, "/2") {
+		t.Errorf("] past the newest did not come back to the latest reply:\n%s", final)
+	}
+}
+
+func TestWithoutAHistoryTheBracketsDoNothing(t *testing.T) {
+	t.Parallel()
+
+	reader := newReader(t, &fixedReplies{replies: []string{"answer"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "ANSWER")
+	reader.Send(tea.KeyMsg{Runes: []rune("["), Type: tea.KeyRunes})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	final := reader.FinalModel(t).View()
+	if strings.Contains(final, "history") || !strings.Contains(final, "ANSWER") {
+		t.Errorf("a reader with no history moved away from the reply:\n%s", final)
+	}
+}

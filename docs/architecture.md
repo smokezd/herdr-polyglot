@@ -19,6 +19,7 @@ back to the same pane through the *herdr* CLI: `agent prompt` to send it, or
 | `deepl`, `google`, `command`, `lmstudio` | Services behind those ports: two hosts, one program on the machine and a language model served on it. |
 | `herdr` | Talking to *herdr*: the CLI runner, the two delivery targets, the socket. |
 | `readstate` | What a reader hands on between processes — a hidden popup's content, what a reader moving to the other place carries, which agent a reader pane belongs to — and a Unix socket per running reader, so a key pressed in herdr can tell it to translate again, hide or move. |
+| `history` | The replies a reader translated, the last 100 for each project, found by the nearest folder up from the agent's that holds a `.git`. |
 | `transcript` | What the agent in a pane replied: its *Claude Code* or *Codex* session file, split into one reply per prompt, or else the terminal's recent output. |
 | `overlay` | The *Bubble Tea* program: the draft box, the header and footer, the keys. |
 | `vimarea` | A text area with modal editing, used by the overlay. |
@@ -59,6 +60,12 @@ Each shown reply is translated on its own, told what came before it: the context
 replies and any shown reply ahead of it, the last 4,000 characters. `Protecting`
 passes that along to a `ContextualTranslator` with its code left out, and
 translates the reply alone for a service that is not one.
+
+A reply translated before into the same language is not translated again: the
+reader looks it up in `history` first, by its text, and keeps each translation
+it finishes there. Asking for a translation again, with the pane key or a host
+chosen with `ctrl+o`, passes the history by and replaces what it held. The
+terminal's output is never kept, being no reply and never the same twice.
 
 A reader is a popup or a pane, and herdr gives the two different powers: a popup
 has no pane id and takes every key while it is open, and herdr cannot hide one;

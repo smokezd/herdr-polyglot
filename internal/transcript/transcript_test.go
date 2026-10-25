@@ -99,6 +99,18 @@ func TestAClaudeReplyIsWhatTheAgentSaidBetweenTwoPrompts(t *testing.T) {
 	}
 }
 
+func TestTheFolderAnAgentWorksInIsWhatHerdrSays(t *testing.T) {
+	t.Parallel()
+	herdr, _ := claudePane(t)
+
+	if got := transcript.Dir(context.Background(), herdr, "w1:p1"); got != "/some/project" {
+		t.Errorf("Dir is %q, want /some/project", got)
+	}
+	if got := transcript.Dir(context.Background(), &fakeHerdr{}, "w1:p1"); got != "" {
+		t.Errorf("Dir of a pane with no agent is %q, want nothing", got)
+	}
+}
+
 func TestOnlyTheLatestRepliesAreHandedOut(t *testing.T) {
 	t.Parallel()
 	herdr, places := claudePane(t)

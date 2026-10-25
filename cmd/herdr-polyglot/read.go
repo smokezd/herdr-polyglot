@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/wazum/herdr-polyglot/internal/config"
 	"github.com/wazum/herdr-polyglot/internal/draft"
 	"github.com/wazum/herdr-polyglot/internal/herdr"
+	"github.com/wazum/herdr-polyglot/internal/history"
 	"github.com/wazum/herdr-polyglot/internal/lmstudio"
 	"github.com/wazum/herdr-polyglot/internal/overlay"
 	"github.com/wazum/herdr-polyglot/internal/readstate"
@@ -74,6 +76,10 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 			chosen := chooseReplyService(hosts.applied())
 			return replyTranslator(chosen.translator), hosts.label(chosen.name), chosen.trouble
 		}
+	}
+	options.History = projectHistory{
+		store:    history.New(settings.StateDir, history.Root(transcript.Dir(ctx, runner, agent))),
+		language: options.Language,
 	}
 	if place == readstate.Popup {
 		options.Hide = func(saved overlay.Snapshot) error { return keep(store.Hidden(agent), &saved) }
@@ -138,6 +144,36 @@ func keep(slot draft.Slot, saved *overlay.Snapshot) error {
 		return fmt.Errorf("keeping what is on show: %w", err)
 	}
 	return slot.Save(string(encoded))
+}
+
+// projectHistory hands the overlay the translations kept for the project the
+// agent works in, in the language read in now.
+type projectHistory struct {
+	store    history.Store
+	language string
+}
+
+func (p projectHistory) Entries() []overlay.HistoryEntry {
+	kept, _ := p.store.Entries()
+	entries := make([]overlay.HistoryEntry, len(kept))
+	for i, entry := range kept {
+		entries[i] = overlay.HistoryEntry{Original: entry.Original, Translation: entry.Translation, At: entry.At}
+	}
+	return entries
+}
+
+func (p projectHistory) Find(original string) (string, bool) {
+	entry, found := p.store.Find(original, p.language)
+	return entry.Translation, found
+}
+
+// Remember keeps what it can: a history that cannot be written costs only a
+// translation next time.
+func (p projectHistory) Remember(original, translated string) {
+	_ = p.store.Remember(history.Entry{
+		Original: original, Translation: translated,
+		Language: p.language, At: time.Now(),
+	})
 }
 
 // replies hands the overlay the text of each reply and nothing of where it

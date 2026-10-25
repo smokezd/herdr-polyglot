@@ -66,6 +66,16 @@ func Resolve(ctx context.Context, runner Runner, pane string, places Places) Sou
 	return terminal
 }
 
+// Dir is the folder the agent in the pane works in, as herdr knows it, or
+// nothing when herdr knows of no agent there.
+func Dir(ctx context.Context, runner Runner, pane string) string {
+	agent, err := agentIn(ctx, runner, pane)
+	if err != nil {
+		return ""
+	}
+	return agent.Cwd
+}
+
 type agentInfo struct {
 	Agent   string `json:"agent"`
 	Cwd     string `json:"cwd"`

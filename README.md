@@ -231,7 +231,8 @@ command = "wazum.polyglot.read-toggle"
 - The pane key translates the latest reply again in the pane that is already
   open, dropping what it showed.
 - `h` in the popup hides it. The popup key then brings it back as it was, without
-  translating again; once a popup is closed with `esc`, the key translates afresh.
+  translating again; once a popup is closed with `esc`, the key reads the replies
+  afresh.
 - `m` in either, or the toggle key, opens what is on show in the other place.
   A hidden popup is moved too.
 
@@ -247,6 +248,15 @@ what is on show (the translation, or the original after `tab`) to the clipboard,
 `ctrl+t` tries again after a failure, `h` hides the popup, `m` moves it, and
 `esc` or `q` closes. Copying uses `pbcopy` on macOS, and `wl-copy`, `xclip` or
 `xsel` on Linux.
+
+Each translated reply is kept, the last 100 for each project: the repository the
+agent works in, and every worktree of it on its own. A reply kept already is
+shown at once, without asking the service again; the pane key, `ctrl+t` and
+`ctrl+o` translate anew. A reply read before the agent finished it gives way to
+the whole of it. `[` steps back through the earlier ones and `]` forward again,
+past the newest back to the latest reply; `tab` and `y` work on them as on the
+reply. The history is kept in the plugin's state directory and never sent
+anywhere.
 
 ## What leaves your machine
 

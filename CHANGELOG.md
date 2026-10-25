@@ -9,6 +9,10 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The reader keeps the last 100 translated replies of each project — the
+  repository the agent works in, each worktree on its own. A reply translated
+  before is shown at once without asking the service again, and `[` and `]` step
+  back and forth through the earlier ones.
 - LM Studio can run on more than one machine: `HERDR_POLYGLOT_LMSTUDIO_HOSTS`
   names them as `name=url,…`, each with its own model and key if it needs one, and
   `ctrl+o` in any popup lists them, says which are up, and switches. The choice is
