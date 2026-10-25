@@ -348,6 +348,7 @@ func TestAValueThatIsNeitherOnNorOffIsRefused(t *testing.T) {
 		"HERDR_POLYGLOT_CONFIRM",
 		"HERDR_POLYGLOT_KEEP_DRAFT",
 		"HERDR_POLYGLOT_PULSE",
+		"HERDR_POLYGLOT_READ_MARKDOWN",
 	} {
 		environment := map[string]string{
 			"HERDR_POLYGLOT_TARGET": "w1:p1",
@@ -459,7 +460,7 @@ func TestLoadReadsOneReplyWithTwoBeforeItAndNoLanguageUnlessTold(t *testing.T) {
 	if settings.Reading {
 		t.Error("Reading is true, want the prompt box unless the mode says otherwise")
 	}
-	want := config.ReadSettings{Language: "", Replies: 1, Context: 2}
+	want := config.ReadSettings{Language: "", Replies: 1, Context: 2, MarkdownStyle: "dark"}
 	if settings.Read != want {
 		t.Errorf("Read is %+v, want %+v", settings.Read, want)
 	}
@@ -480,7 +481,7 @@ func TestLoadTakesTheReadingSettingsFromTheDotenv(t *testing.T) {
 	if !settings.Reading {
 		t.Error("Reading is false, want it on for HERDR_POLYGLOT_MODE=read")
 	}
-	want := config.ReadSettings{Language: "DE", Replies: 3, Context: 0}
+	want := config.ReadSettings{Language: "DE", Replies: 3, Context: 0, MarkdownStyle: "dark"}
 	if settings.Read != want {
 		t.Errorf("Read is %+v, want %+v", settings.Read, want)
 	}
@@ -612,5 +613,43 @@ func TestLMStudioHostsAndAnEndpointTogetherAreRefused(t *testing.T) {
 	}))
 	if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_ENDPOINT") {
 		t.Errorf("Load returned %v, want the endpoint named as the one to move", err)
+	}
+}
+
+func TestRepliesAreShownAsPlainTextInTheDarkStyleUnlessTold(t *testing.T) {
+	t.Parallel()
+
+	settings, err := config.Load(envFrom(map[string]string{"HERDR_POLYGLOT_TARGET": "w1:p1"}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if settings.Read.Markdown || settings.Read.MarkdownStyle != "dark" {
+		t.Errorf("markdown is %v in %q, want off in dark", settings.Read.Markdown, settings.Read.MarkdownStyle)
+	}
+
+	settings, err = config.Load(envFrom(map[string]string{
+		"HERDR_POLYGLOT_TARGET":              "w1:p1",
+		"HERDR_POLYGLOT_READ_MARKDOWN":       "on",
+		"HERDR_POLYGLOT_READ_MARKDOWN_STYLE": "Light",
+	}))
+	if err != nil {
+		t.Fatalf("Load returned unexpected error: %v", err)
+	}
+	if !settings.Read.Markdown || settings.Read.MarkdownStyle != "light" {
+		t.Errorf("markdown is %v in %q, want on in light", settings.Read.Markdown, settings.Read.MarkdownStyle)
+	}
+}
+
+func TestAMarkdownStyleThatDoesNotExistIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, style := range []string{"solarized", "auto"} {
+		_, err := config.Load(envFrom(map[string]string{
+			"HERDR_POLYGLOT_TARGET":              "w1:p1",
+			"HERDR_POLYGLOT_READ_MARKDOWN_STYLE": style,
+		}))
+		if err == nil || !strings.Contains(err.Error(), "HERDR_POLYGLOT_READ_MARKDOWN_STYLE") {
+			t.Errorf("style %q gave %v, want it refused by name", style, err)
+		}
 	}
 }

@@ -127,6 +127,8 @@ off (`0`, `false`, `no`, `off`) is refused rather than guessed at.
 | `HERDR_POLYGLOT_READ_LANGUAGE` | none | Language the agent's replies are [read in](#read-the-agents-reply-in-your-language) |
 | `HERDR_POLYGLOT_READ_REPLIES` | `1` | How many of the latest replies are translated and shown |
 | `HERDR_POLYGLOT_READ_CONTEXT` | `2` | How many replies before those go along as context, unshown |
+| `HERDR_POLYGLOT_READ_MARKDOWN` | `0` | `1` renders what the reader shows as markdown, as glow does; `M` switches it |
+| `HERDR_POLYGLOT_READ_MARKDOWN_STYLE` | `dark` | Its look: one of glamour's styles, `dark`, `light`, `dracula`, `tokyo-night`, `pink`, `ascii` or `notty` |
 | `HERDR_POLYGLOT_WIDTH` | `90` | Width of the prompt popup, in cells or as a share of the screen like `80%` |
 | `HERDR_POLYGLOT_HEIGHT` | `17` | Height of the prompt popup, the same way |
 | `HERDR_POLYGLOT_READ_WIDTH` | `90` | Width of the popup replies are read in |
@@ -244,7 +246,8 @@ are not. herdr sizes a pane itself, so the reading width and height apply to the
 popup only.
 
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b` a
-page at a time, `tab` shows the reply as the agent wrote it, `y` copies all of
+page at a time, `tab` shows the reply as the agent wrote it, `M` renders it as
+markdown, the way glow does, or as plain text again, `y` copies all of
 what is on show (the translation, or the original after `tab`) to the clipboard,
 `t` translates a new reply, `[` and `]` step through the ones translated before,
 `l` lists every reply of the session to pick one to translate,

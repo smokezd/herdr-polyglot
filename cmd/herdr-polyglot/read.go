@@ -51,14 +51,16 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		return transcript.Resolve(ctx, runner, agent, agentHomes())
 	}}
 	options := overlay.ReaderOptions{
-		Service:  hosts.label(chosen.name),
-		Language: orDefault(settings.Read.Language, "?"),
-		Replies:  settings.Read.Replies,
-		Context:  settings.Read.Context,
-		Trouble:  chosen.trouble,
-		Pulse:    settings.Pulse,
-		InPane:   place == readstate.Pane,
-		Resumed:  resumed,
+		Service:       hosts.label(chosen.name),
+		Language:      orDefault(settings.Read.Language, "?"),
+		Replies:       settings.Read.Replies,
+		Context:       settings.Read.Context,
+		Markdown:      settings.Read.Markdown,
+		MarkdownStyle: settings.Read.MarkdownStyle,
+		Trouble:       chosen.trouble,
+		Pulse:         settings.Pulse,
+		InPane:        place == readstate.Pane,
+		Resumed:       resumed,
 		Copy: func(text string) error {
 			tools := clipboard.Tools(runtime.GOOS, os.Getenv("WAYLAND_DISPLAY") != "")
 			return clipboard.Write(ctx, tools, text)

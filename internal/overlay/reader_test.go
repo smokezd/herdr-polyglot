@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/teatest"
 
 	"github.com/wazum/herdr-polyglot/internal/overlay"
@@ -1008,4 +1009,86 @@ func TestAPromptIsPreviewedWholeWithoutItsTags(t *testing.T) {
 			t.Errorf("PromptText(%q) is %q, want %q", c.prompt, got, c.want)
 		}
 	}
+}
+
+var markdownKey = tea.KeyMsg{Runes: []rune("M"), Type: tea.KeyRunes}
+
+// waitForPlain waits for texts in what is shown with its styles left out:
+// rendered markdown styles each word on its own.
+func waitForPlain(t *testing.T, reader *teatest.TestModel, texts ...string) {
+	t.Helper()
+	teatest.WaitFor(t, reader.Output(), func(out []byte) bool {
+		plain := ansi.Strip(string(out))
+		for _, text := range texts {
+			if !strings.Contains(plain, text) {
+				return false
+			}
+		}
+		return true
+	}, teatest.WithDuration(3*time.Second))
+}
+
+func TestMRendersTheTranslationAsMarkdownAndBack(t *testing.T) {
+	t.Parallel()
+
+	reader := newReader(t, &fixedReplies{replies: []string{"**bold** words"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1, MarkdownStyle: "dark"})
+	waitForText(t, reader, "**BOLD** WORDS", "M markdown")
+	reader.Send(markdownKey)
+	waitForPlain(t, reader, "BOLD WORDS", "M plain")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "**BOLD**") {
+		t.Errorf("the markdown was shown as written:\n%s", final)
+	}
+}
+
+func TestMarkdownTurnedOnRendersTheOriginalAndTheHistoryToo(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "an `older` one", Translation: "_早_"}}}
+	var saved overlay.Snapshot
+
+	reader := newReader(t, &fixedReplies{replies: []string{"**bold** words"}}, &upperTranslator{},
+		overlay.ReaderOptions{
+			Replies: 1, Markdown: true, MarkdownStyle: "dark", History: kept,
+			Hide: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
+		})
+	// A new reply waits for t on the history, rendered.
+	waitForPlain(t, reader, "早", "M plain")
+	reader.Send(translateKey)
+	waitForPlain(t, reader, "BOLD WORDS")
+	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
+	waitForPlain(t, reader, "bold words")
+	reader.Send(tea.KeyMsg{Runes: []rune("h"), Type: tea.KeyRunes})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "**bold**") || strings.Contains(final, "_早_") {
+		t.Errorf("the markdown was shown as written:\n%s", final)
+	}
+	if !saved.Markdown {
+		t.Error("a hidden popup forgot it was rendering markdown")
+	}
+}
+
+func TestMRendersTheWholeReplyInThePreview(t *testing.T) {
+	t.Parallel()
+	session := sessionOf(
+		overlay.Turn{Prompt: "explain", Reply: "# Heading\n\nsome *stress* here"},
+		overlay.Turn{Prompt: "thanks", Reply: "welcome"},
+	)
+
+	reader := newReader(t, session, &upperTranslator{}, overlay.ReaderOptions{Replies: 1, MarkdownStyle: "dark"})
+	waitForText(t, reader, "WELCOME")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply")
+	reader.Send(tea.KeyMsg{Type: tea.KeyUp})
+	reader.Send(tea.KeyMsg{Runes: []rune("p"), Type: tea.KeyRunes})
+	waitForText(t, reader, "*stress*", "M markdown")
+	reader.Send(markdownKey)
+	waitForPlain(t, reader, "some stress here", "M plain")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }

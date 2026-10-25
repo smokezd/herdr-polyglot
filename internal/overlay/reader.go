@@ -85,6 +85,10 @@ type ReaderOptions struct {
 	ChooseHost func(name string) (ReplyTranslator, string, error)
 	// Copy puts text on the clipboard. Without it y does nothing.
 	Copy func(text string) error
+	// Markdown renders what is shown, the translation or the reply as written,
+	// as markdown in MarkdownStyle, one of glamour's; M turns it on and off.
+	Markdown      bool
+	MarkdownStyle string
 	// History keeps each reply translated, and [ and ] step through it.
 	// Without it every reply is translated and the keys do nothing.
 	History History
@@ -110,6 +114,8 @@ type Snapshot struct {
 	Held bool `json:"held"`
 	// Picked names the reply picked from the list, when it is not the latest.
 	Picked string `json:"picked,omitempty"`
+	// Markdown says what is shown is rendered as markdown.
+	Markdown bool `json:"markdown,omitempty"`
 }
 
 // SnapshotReply is one reply's translation as far as it had come.
@@ -185,6 +191,10 @@ type Reader struct {
 	// the one picked from it while that is on show rather than the latest.
 	turns  turnPicker
 	picked string
+	// markdown renders what is shown with render, which keeps its renderings
+	// for every copy of the model.
+	markdown bool
+	render   *markdown
 }
 
 // result is one reply's translation as far as it has come.
@@ -212,6 +222,8 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		canvas:     canvas,
 		failure:    options.Trouble,
 		stop:       func() {},
+		markdown:   options.Markdown,
+		render:     newMarkdown(options.MarkdownStyle),
 	}
 	if saved := options.Resumed; saved != nil {
 		reader.loaded = true
@@ -227,6 +239,7 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		}
 		reader.next = min(max(saved.Next, 0), len(saved.Shown))
 		reader.original, reader.held, reader.picked = saved.Original, saved.Held, saved.Picked
+		reader.markdown = saved.Markdown
 		// Until the pane's size says where that is, the reader comes back
 		// where it was rather than at the end.
 		reader.follow = false
@@ -242,7 +255,7 @@ func (r Reader) Snapshot() Snapshot {
 		Source: r.options.Source, Whole: r.options.Whole,
 		Shown: r.shown, Context: r.context, Next: r.next,
 		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original, Held: r.held,
-		Picked: r.picked,
+		Picked: r.picked, Markdown: r.markdown,
 	}
 	for index := range r.shown {
 		kept := SnapshotReply{}
@@ -644,6 +657,11 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.from = r.clamp(r.from)
 		return r, nil
 
+	case key.String() == "M":
+		r.markdown = !r.markdown
+		r.from = r.clamp(r.from)
+		return r, nil
+
 	case key.Type == tea.KeyCtrlT:
 		if r.failure == nil || !r.loaded || r.next >= len(r.shown) || r.options.Trouble != nil {
 			return r, nil
@@ -830,10 +848,18 @@ func (r Reader) lines() []string {
 			lines = append(lines, style.Render(line))
 		}
 	}
+	// body is a reply or its translation, rendered when markdown is on.
+	body := func(text string) {
+		if r.markdown {
+			lines = append(lines, r.render.lines(text, width)...)
+			return
+		}
+		add(text, look.text)
+	}
 
 	switch {
 	case r.browsing():
-		add(r.entryText(), look.text)
+		body(r.entryText())
 		return lines
 	case !r.loaded:
 		add("reading what the agent said …", look.placeholder)
@@ -857,10 +883,10 @@ func (r Reader) lines() []string {
 			add("", look.text)
 		}
 		if r.original || r.options.Trouble != nil {
-			add(reply, look.text)
+			body(reply)
 			continue
 		}
-		r.addResult(index, reply, add)
+		r.addResult(index, reply, add, body)
 	}
 	return lines
 }
@@ -876,7 +902,7 @@ func (r Reader) entryText() string {
 
 // addResult shows the thinking while it goes on and a line for it once it is
 // over, then the translation as far as it has come.
-func (r Reader) addResult(index int, reply string, add func(string, lipgloss.Style)) {
+func (r Reader) addResult(index int, reply string, add func(string, lipgloss.Style), body func(string)) {
 	look := r.canvas.styles
 	result := r.results[index]
 	current := index == r.next
@@ -895,10 +921,10 @@ func (r Reader) addResult(index int, reply string, add func(string, lipgloss.Sty
 
 	switch {
 	case result.text != "" && (index < r.next || r.failure == nil):
-		add(result.text, look.text)
+		body(result.text)
 	case current && r.failure != nil:
 		// What did not translate is still worth reading as it was written.
-		add(reply, look.text)
+		body(reply)
 	case current && result.thinking == "":
 		add("translating …", look.placeholder)
 	case !current:
@@ -1021,7 +1047,7 @@ func (r Reader) footer(inner int) string {
 	if r.hint != "" {
 		return spread(" "+look.badge.Render(cutTo(r.hint, max(inner-2, 1))), "", inner)
 	}
-	hints := []string{key("↑↓", "read"), key("tab", r.otherView())}
+	hints := []string{key("↑↓", "read"), key("tab", r.otherView()), key("M", markdownHint(r.markdown))}
 	if r.held {
 		hints = append([]string{key("t", "translate")}, hints...)
 	}

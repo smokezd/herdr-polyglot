@@ -129,11 +129,13 @@ func (p turnPicker) position() string {
 }
 
 // footer names the keys the list answers to.
-func (p turnPicker) footer(look styles, inner int) string {
+func (p turnPicker) footer(look styles, inner int, markdown bool) string {
 	key := func(name, does string) string { return look.key.Render(name) + look.hint.Render(" "+does) }
 	hints := []string{key("↑↓", "move"), key("p", "preview"), key("enter", "translate"), key("esc", "back")}
 	if p.previewing {
-		hints = []string{key("↑↓", "scroll"), key("enter", "translate"), key("esc", "list")}
+		hints = []string{
+			key("↑↓", "scroll"), key("M", markdownHint(markdown)), key("enter", "translate"), key("esc", "list"),
+		}
 	}
 	return spread(" "+strings.Join(hints, look.hint.Render(" · ")), "", inner)
 }
@@ -273,6 +275,9 @@ func (r Reader) translatePicked(index int) (tea.Model, tea.Cmd) {
 // previewKey scrolls the turn shown whole, translates it, or goes back to the
 // list where it was.
 func (r Reader) previewKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if key.String() == "M" {
+		r.markdown = !r.markdown
+	}
 	rows := r.rows()
 	bottom := max(len(r.previewLines())-rows, 0)
 	from := r.turns.from
@@ -316,7 +321,11 @@ func (r Reader) previewLines() []string {
 	add("", look.text)
 	add(strings.Repeat("─", min(width, 24)), look.mark)
 	add("", look.text)
-	add(turn.Reply, look.text)
+	if r.markdown {
+		lines = append(lines, r.render.lines(turn.Reply, width)...)
+	} else {
+		add(turn.Reply, look.text)
+	}
 	return lines
 }
 
@@ -330,7 +339,7 @@ func (r Reader) previewView() string {
 		r.canvas.box(true).Height(rows).Render(r.canvas.scrolled(shown, from, rows, total)),
 		strings.TrimSpace("replies "+howFarThrough(from, rows, total)), true)
 	line := lipgloss.Width(box)
-	return strings.Join([]string{r.header(line), box, r.turns.footer(r.canvas.styles, line-1)}, "\n")
+	return strings.Join([]string{r.header(line), box, r.turns.footer(r.canvas.styles, line-1, r.markdown)}, "\n")
 }
 
 func (r Reader) turnsView() string {
@@ -342,5 +351,5 @@ func (r Reader) turnsView() string {
 	body := r.turns.rows(look, r.canvas.contentWidth(), rows)
 	box := r.canvas.labelled(r.canvas.box(true).Height(rows).Render(body), "replies", true)
 	line := lipgloss.Width(box)
-	return strings.Join([]string{r.header(line), box, r.turns.footer(look, line-1)}, "\n")
+	return strings.Join([]string{r.header(line), box, r.turns.footer(look, line-1, r.markdown)}, "\n")
 }

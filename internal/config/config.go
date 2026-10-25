@@ -10,8 +10,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/glamour/styles"
 
 	"github.com/wazum/herdr-polyglot/internal/translation"
 )
@@ -40,6 +43,8 @@ const (
 	readLangVar  = "HERDR_POLYGLOT_READ_LANGUAGE"
 	readShowVar  = "HERDR_POLYGLOT_READ_REPLIES"
 	readCtxVar   = "HERDR_POLYGLOT_READ_CONTEXT"
+	readMdVar    = "HERDR_POLYGLOT_READ_MARKDOWN"
+	readMdStyle  = "HERDR_POLYGLOT_READ_MARKDOWN_STYLE"
 	widthVar     = "HERDR_POLYGLOT_WIDTH"
 	heightVar    = "HERDR_POLYGLOT_HEIGHT"
 	readWideVar  = "HERDR_POLYGLOT_READ_WIDTH"
@@ -58,6 +63,7 @@ const (
 
 	defaultReadReplies = 1
 	defaultReadContext = 2
+	defaultMarkdown    = styles.DarkStyle
 )
 
 type Settings struct {
@@ -107,6 +113,10 @@ type ReadSettings struct {
 	Language string
 	Replies  int
 	Context  int
+	// Markdown renders what is shown as markdown, the way glow does, in
+	// MarkdownStyle, one of glamour's own.
+	Markdown      bool
+	MarkdownStyle string
 	// Size is the popup's, which wants more room than a prompt's.
 	Size Size
 }
@@ -172,10 +182,12 @@ func Load(getenv func(string) string) (Settings, error) {
 		MaxDraft:    given.number(maxDraftVar, "characters"),
 		Reading:     lookup(modeVar) == ReadMode,
 		Read: ReadSettings{
-			Language: lookup(readLangVar),
-			Replies:  given.count(readShowVar, defaultReadReplies, 1),
-			Context:  given.count(readCtxVar, defaultReadContext, 0),
-			Size:     Size{Width: given.extent(readWideVar), Height: given.extent(readHighVar)},
+			Language:      lookup(readLangVar),
+			Replies:       given.count(readShowVar, defaultReadReplies, 1),
+			Context:       given.count(readCtxVar, defaultReadContext, 0),
+			Markdown:      given.flag(readMdVar, false),
+			MarkdownStyle: given.markdownStyle(readMdStyle),
+			Size:          Size{Width: given.extent(readWideVar), Height: given.extent(readHighVar)},
 		},
 		Prompt: Size{Width: given.extent(widthVar), Height: given.extent(heightVar)},
 		Options: translation.Options{
@@ -227,6 +239,27 @@ func (r *reading) flag(variable string, whenUnset bool) bool {
 		r.refuse(variable, value, "neither on (1, true, yes, on) nor off (0, false, no, off)")
 		return whenUnset
 	}
+}
+
+// markdownStyle is one of glamour's own styles. Its auto style asks the
+// terminal for its background, which a popup may never answer, so it is not
+// one of them.
+func (r *reading) markdownStyle(variable string) string {
+	value := strings.TrimSpace(r.lookup(variable))
+	if value == "" {
+		return defaultMarkdown
+	}
+	style := strings.ToLower(value)
+	if _, known := styles.DefaultStyles[style]; !known {
+		names := make([]string, 0, len(styles.DefaultStyles))
+		for name := range styles.DefaultStyles {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		r.refuse(variable, value, "not a style glamour knows: "+strings.Join(names, ", "))
+		return defaultMarkdown
+	}
+	return style
 }
 
 // A zero means no number was given and the overlay picks its own.
