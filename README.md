@@ -209,8 +209,9 @@ command translate each reply on its own. Code stays out, as it does for a prompt
 
 With *LM Studio* the translation streams in as the model writes it. A model that
 thinks first shows its thinking, faded, while it goes on, and folds it into one
-line — `▸ thought for 8s` — as soon as the answer begins. The view follows the
-end of the text until you scroll away from it. Other services answer all at once.
+line — `▸ thought for 8s` — as soon as the answer begins. A reply opens at its
+top, so it is read from the start; `G` goes to the end and follows the text as
+it is written, until you scroll away. Other services answer all at once.
 
 It can also open in a pane beside the agent, which leaves the keyboard where it
 was, so you keep typing to the agent while you read. Bind both, and the key that

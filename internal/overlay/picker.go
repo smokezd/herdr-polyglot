@@ -267,7 +267,8 @@ func (r Reader) useHost(name string) (tea.Model, tea.Cmd) {
 		return r, nil
 	}
 	r.results = make([]result, len(r.shown))
-	r.next, r.follow = 0, true
+	r.next = 0
+	r.toTop()
 	started := r.startTranslating()
 	return r, started
 }

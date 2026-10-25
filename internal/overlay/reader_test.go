@@ -182,15 +182,20 @@ func TestALongReplyScrolls(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{strings.Join(lines, "\n")}}, &upperTranslator{},
 		overlay.ReaderOptions{Replies: 1})
-	waitForText(t, reader, "THE VERY END", "100%", overlay.ScrollThumb)
-	reader.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	// A reply opens at its top: it is read from the start.
 	teatest.WaitFor(t, reader.Output(), func(out []byte) bool {
-		return bytes.Contains(out, []byte("LINE")) && !bytes.Contains(out, []byte("THE VERY END"))
+		return bytes.Contains(out, []byte("LINE")) && bytes.Contains(out, []byte(overlay.ScrollThumb)) &&
+			!bytes.Contains(out, []byte("THE VERY END"))
 	}, teatest.WithDuration(3*time.Second))
 	reader.Send(tea.KeyMsg{Runes: []rune("G"), Type: tea.KeyRunes})
 	waitForText(t, reader, "THE VERY END", "100%")
+	reader.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); strings.Contains(final, "THE VERY END") {
+		t.Errorf("g did not go back to the top:\n%s", final)
+	}
 }
 
 // thinkingTranslator thinks out loud, waits until the test lets it go on, and
@@ -252,7 +257,7 @@ func (s streamingTranslator) TranslateReply(
 	return so, nil
 }
 
-func TestAStreamedAnswerKeepsItsEndInView(t *testing.T) {
+func TestAStreamedAnswerStaysAtItsTopWhileItGrows(t *testing.T) {
 	t.Parallel()
 	lines := make([]string, 60)
 	for i := range lines {
@@ -261,12 +266,15 @@ func TestAStreamedAnswerKeepsItsEndInView(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{"long"}}, streamingTranslator{lines: lines},
 		overlay.ReaderOptions{Replies: 1})
-	waitForText(t, reader, "zeile 59", "100%")
+	waitForText(t, reader, "zeile 0")
+	// Long enough for every line to have arrived.
+	time.Sleep(300 * time.Millisecond)
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 
-	if final := reader.FinalModel(t).View(); strings.Contains(final, "zeile 0\n") {
-		t.Errorf("the view stayed at the top while the answer grew:\n%s", final)
+	final := reader.FinalModel(t).View()
+	if !strings.Contains(final, "zeile 0") || strings.Contains(final, "zeile 59") {
+		t.Errorf("the view followed the answer down instead of staying at its top:\n%s", final)
 	}
 }
 
@@ -397,8 +405,7 @@ func TestAHiddenPopupComesBackScrolledWhereItWas(t *testing.T) {
 	first := readerAt(t, 80, overlay.ReaderOptions{
 		Hide: func(saved overlay.Snapshot) error { kept = saved; return nil },
 	})
-	waitForText(t, first, "ZEILE 99")
-	first.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	waitForText(t, first, "ZEILE 0")
 	for range 40 {
 		first.Send(tea.KeyMsg{Type: tea.KeyDown})
 	}
@@ -506,6 +513,8 @@ func TestCtrlBPagesUpAndSpacePagesDown(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{strings.Join(lines, "\n")}}, &upperTranslator{},
 		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "LINE", overlay.ScrollThumb)
+	reader.Send(tea.KeyMsg{Runes: []rune("G"), Type: tea.KeyRunes})
 	waitForText(t, reader, "THE VERY END", "100%")
 	reader.Send(tea.KeyMsg{Type: tea.KeyCtrlB})
 	teatest.WaitFor(t, reader.Output(), func(out []byte) bool {

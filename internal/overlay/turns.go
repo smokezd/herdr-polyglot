@@ -218,7 +218,8 @@ func (r Reader) translatePicked(index int) (tea.Model, tea.Cmd) {
 	r.shown = []string{turns[index].Reply}
 	r.context = before[max(len(before)-r.options.Context, 0):]
 	r.results, r.next = make([]result, 1), 0
-	r.held, r.browse, r.fresh, r.original, r.follow = false, nil, false, false, true
+	r.held, r.browse, r.fresh, r.original = false, nil, false, false
+	r.toTop()
 	r.picked = "reply " + r.turns.position()
 	if r.options.Trouble != nil {
 		return r, nil

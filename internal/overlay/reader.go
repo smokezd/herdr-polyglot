@@ -160,8 +160,9 @@ type Reader struct {
 	failure  error
 	original bool
 	from     int
-	// follow keeps the end of the text in view while it is being written, until
-	// the reader scrolls away from it.
+	// follow keeps the end of the text in view while it is being written, once
+	// the reader has scrolled down to it. A reply opens at its top: it is read
+	// from the start, not from wherever the writing has got to.
 	follow bool
 	// returnTo is where a reader coming back was scrolled to, kept until the
 	// pane's size is known: only then does the text have rows to count.
@@ -210,7 +211,6 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 		options:    options,
 		canvas:     canvas,
 		failure:    options.Trouble,
-		follow:     true,
 		stop:       func() {},
 	}
 	if saved := options.Resumed; saved != nil {
@@ -336,7 +336,8 @@ func (r Reader) refresh() (tea.Model, tea.Cmd) {
 	r.attempt++
 	r.fetch++
 	r.loaded, r.shown, r.context, r.results, r.next = false, nil, nil, nil, 0
-	r.failure, r.original, r.from, r.follow = r.options.Trouble, false, 0, true
+	r.failure, r.original = r.options.Trouble, false
+	r.toTop()
 	r.fresh, r.browse, r.picked = true, nil, ""
 	r.canvas.endPulse()
 	fetching := r.fetchReplies()
@@ -647,19 +648,21 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.failure == nil || !r.loaded || r.next >= len(r.shown) || r.options.Trouble != nil {
 			return r, nil
 		}
-		r.follow, r.fresh = true, true
+		r.fresh = true
+		r.toTop()
 		started := r.startTranslating()
 		return r, started
 
 	case key.String() == "t":
 		if r.held {
-			r.held, r.browse, r.follow = false, nil, true
+			r.held, r.browse = false, nil
+			r.toTop()
 			started := r.startTranslating()
 			return r, started
 		}
 		if r.browsing() {
-			r.browse, r.follow = nil, true
-			r.keepInView()
+			r.browse = nil
+			r.toTop()
 		}
 
 	case key.String() == "l":
@@ -711,10 +714,12 @@ func (r *Reader) step(by int) {
 	r.at = max(r.at+by, 0)
 	if r.at >= len(r.browse) {
 		r.browse = nil
-		r.follow = true
-		r.keepInView()
-		return
 	}
+	r.toTop()
+}
+
+// toTop shows what opens now from its start.
+func (r *Reader) toTop() {
 	r.from, r.follow = 0, false
 }
 
