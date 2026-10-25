@@ -106,6 +106,8 @@ type Snapshot struct {
 	Rows     int  `json:"rows"`
 	AtEnd    bool `json:"at_end"`
 	Original bool `json:"original"`
+	// Held says the replies wait for t to be translated.
+	Held bool `json:"held"`
 }
 
 // SnapshotReply is one reply's translation as far as it had come.
@@ -169,6 +171,9 @@ type Reader struct {
 	// fresh says a translation was asked for again, so the history is not
 	// looked in: what it holds is what is being replaced.
 	fresh bool
+	// held says the replies on show wait for t: a reader opens on what was
+	// translated before rather than asking the service unbidden.
+	held bool
 	// browse is the history being read instead of the replies, and at the
 	// entry on show. Without it the replies are.
 	browse []HistoryEntry
@@ -215,7 +220,7 @@ func NewReader(ctx context.Context, replies Replies, translator ReplyTranslator,
 			}
 		}
 		reader.next = min(max(saved.Next, 0), len(saved.Shown))
-		reader.original = saved.Original
+		reader.original, reader.held = saved.Original, saved.Held
 		// Until the pane's size says where that is, the reader comes back
 		// where it was rather than at the end.
 		reader.follow = false
@@ -230,7 +235,7 @@ func (r Reader) Snapshot() Snapshot {
 	saved := Snapshot{
 		Source: r.options.Source, Whole: r.options.Whole,
 		Shown: r.shown, Context: r.context, Next: r.next,
-		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original,
+		From: r.from, Rows: r.total(), AtEnd: r.follow, Original: r.original, Held: r.held,
 	}
 	for index := range r.shown {
 		kept := SnapshotReply{}
@@ -289,7 +294,7 @@ func (r Reader) Init() tea.Cmd {
 		if r.waiting() {
 			return r.fetchReplies()
 		}
-		if r.next < len(r.shown) && r.options.Trouble == nil {
+		if r.next < len(r.shown) && r.options.Trouble == nil && !r.held {
 			// Starting changes the model, which Init cannot keep.
 			return func() tea.Msg { return resumeMsg{} }
 		}
@@ -404,6 +409,12 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(r.shown) == 0 || r.options.Trouble != nil {
 			return r, nil
 		}
+		if r.held = r.holds(); r.held {
+			if !r.browsing() {
+				r.step(-1)
+			}
+			return r, nil
+		}
 		started := r.startTranslating()
 		return r, started
 
@@ -465,6 +476,24 @@ func (s result) finished(text string, now time.Time) result {
 	}
 	s.text, s.thought = text, true
 	return s
+}
+
+// holds says the replies on show wait for t: some of them would go to the
+// service, and nobody asked for that yet. A reader with no history, or one
+// told to translate again, does not wait.
+func (r Reader) holds() bool {
+	if r.options.History == nil || r.fresh {
+		return false
+	}
+	if r.options.Whole {
+		return true
+	}
+	for _, reply := range r.shown {
+		if _, found := r.options.History.Find(reply); !found {
+			return true
+		}
+	}
+	return false
 }
 
 // remember keeps a reply's translation for the next reader in the project.
@@ -610,6 +639,17 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		r.follow, r.fresh = true, true
 		started := r.startTranslating()
 		return r, started
+
+	case key.String() == "t":
+		if r.held {
+			r.held, r.browse, r.follow = false, nil, true
+			started := r.startTranslating()
+			return r, started
+		}
+		if r.browsing() {
+			r.browse, r.follow = nil, true
+			r.keepInView()
+		}
 
 	case key.String() == "[":
 		r.step(-1)
@@ -785,6 +825,9 @@ func (r Reader) lines() []string {
 	case r.waiting():
 		add("waiting for the agent to answer …", look.placeholder)
 		return lines
+	case r.held && !r.original:
+		add("a new reply is waiting · t translates it", look.placeholder)
+		return lines
 	}
 
 	rule := strings.Repeat("─", min(width, 24))
@@ -883,6 +926,9 @@ func (r Reader) header(line int) string {
 	if r.browsing() {
 		said = "history " + strconv.Itoa(r.at+1) + "/" + strconv.Itoa(len(r.browse)) + " · " +
 			when(r.browse[r.at].At, time.Now())
+		if r.held {
+			said += " · new reply"
+		}
 	}
 	pieces = append(pieces, look.badge.Render("· "+said+" · "+r.options.Service))
 	return lipgloss.NewStyle().MaxWidth(line - 1).Render(" " + strings.Join(pieces, look.badge.Render(" ")))
@@ -902,7 +948,8 @@ func when(at, now time.Time) string {
 }
 
 func (r Reader) working() bool {
-	return r.loaded && r.failure == nil && r.next < len(r.shown) && r.options.Trouble == nil && !r.waiting()
+	return r.loaded && r.failure == nil && r.next < len(r.shown) && r.options.Trouble == nil && !r.waiting() &&
+		!r.held
 }
 
 // counted says how much is on show and how much went along unseen.
@@ -945,6 +992,9 @@ func (r Reader) footer(inner int) string {
 		return spread(" "+look.badge.Render(cutTo(r.hint, max(inner-2, 1))), "", inner)
 	}
 	hints := []string{key("↑↓", "read"), key("tab", r.otherView())}
+	if r.held {
+		hints = append([]string{key("t", "translate")}, hints...)
+	}
 	if r.options.History != nil {
 		hints = append(hints, key("[ ]", "history"))
 	}

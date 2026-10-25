@@ -647,6 +647,8 @@ func TestATranslatedReplyIsKeptButTheTerminalIsNot(t *testing.T) {
 	kept := &keptHistory{}
 	reader := newReader(t, &fixedReplies{replies: []string{"an answer"}}, &upperTranslator{},
 		overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "t translate")
+	reader.Send(translateKey)
 	waitForText(t, reader, "AN ANSWER")
 	teatest.WaitFor(t, reader.Output(), func([]byte) bool { return len(kept.Entries()) == 1 },
 		teatest.WithDuration(3*time.Second))
@@ -659,6 +661,8 @@ func TestATranslatedReplyIsKeptButTheTerminalIsNot(t *testing.T) {
 	terminal := &keptHistory{}
 	reader = newReader(t, &fixedReplies{replies: []string{"$ ls"}}, &upperTranslator{},
 		overlay.ReaderOptions{Source: "terminal", Service: "deepl", Language: "DE", Whole: true, History: terminal})
+	waitForText(t, reader, "t translate")
+	reader.Send(translateKey)
 	waitForText(t, reader, "$ LS")
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
@@ -679,6 +683,8 @@ func TestBracketsStepThroughTheHistoryAndBackToTheLatest(t *testing.T) {
 
 	reader := newReader(t, &fixedReplies{replies: []string{"latest"}}, &upperTranslator{},
 		overlay.ReaderOptions{Replies: 1, History: kept, Copy: board.copy})
+	waitForText(t, reader, "t translate")
+	reader.Send(translateKey)
 	waitForText(t, reader, "LATEST", "[ ] history")
 	reader.Send(older)
 	// The latest reply is kept too, but it is on show already: the history
@@ -723,4 +729,83 @@ func TestWithoutAHistoryTheBracketsDoNothing(t *testing.T) {
 	if strings.Contains(final, "history") || !strings.Contains(final, "ANSWER") {
 		t.Errorf("a reader with no history moved away from the reply:\n%s", final)
 	}
+}
+
+var translateKey = tea.KeyMsg{Runes: []rune("t"), Type: tea.KeyRunes}
+
+func TestANewReplyWaitsForTOnTheLatestTranslationKept(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{
+		{Original: "older", Translation: "较早的", At: time.Now()},
+		{Original: "last", Translation: "上一个", At: time.Now()},
+	}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"new answer"}}, translator,
+		overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "上一个", "history 2/2", "new reply", "t translate")
+	if told := translator.told(); len(told) != 0 {
+		t.Fatalf("the service was asked %d times before t, want not at all", len(told))
+	}
+	reader.Send(translateKey)
+	waitForText(t, reader, "NEW ANSWER", "1 reply")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 1 {
+		t.Errorf("the service was asked %d times, want once", len(told))
+	}
+}
+
+func TestWithNothingKeptYetANewReplyStillWaitsForT(t *testing.T) {
+	t.Parallel()
+	translator := &upperTranslator{}
+
+	reader := newReader(t, &fixedReplies{replies: []string{"first ever"}}, translator,
+		overlay.ReaderOptions{Replies: 1, History: &keptHistory{}})
+	waitForText(t, reader, "a new reply is waiting", "t translate")
+	reader.Send(tea.KeyMsg{Type: tea.KeyTab})
+	waitForText(t, reader, "first ever")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 0 {
+		t.Errorf("the service was asked %d times, want not at all", len(told))
+	}
+}
+
+func TestAWaitingReplyStillWaitsWhenThePopupComesBack(t *testing.T) {
+	t.Parallel()
+	translator := &upperTranslator{}
+	var saved overlay.Snapshot
+
+	first := newReader(t, &fixedReplies{replies: []string{"not yet"}}, translator, overlay.ReaderOptions{
+		Replies: 1, History: &keptHistory{},
+		Hide: func(snapshot overlay.Snapshot) error { saved = snapshot; return nil },
+	})
+	waitForText(t, first, "t translate")
+	first.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	first.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	again := newReader(t, &fixedReplies{}, translator,
+		overlay.ReaderOptions{Replies: 1, History: &keptHistory{}, Resumed: &saved})
+	waitForText(t, again, "a new reply is waiting")
+	again.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	again.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 0 {
+		t.Errorf("the service was asked %d times, want not at all", len(told))
+	}
+}
+
+func TestThePaneKeyTranslatesAWaitingReplyWithoutT(t *testing.T) {
+	t.Parallel()
+
+	reader := newReader(t, &fixedReplies{replies: []string{"waiting"}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1, History: &keptHistory{}, InPane: true})
+	waitForText(t, reader, "t translate")
+	reader.Send(overlay.RefreshAsked())
+	waitForText(t, reader, "WAITING")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }

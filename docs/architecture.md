@@ -66,6 +66,9 @@ reader looks it up in `history` first, by its text, and keeps each translation
 it finishes there. Asking for a translation again, with the pane key or a host
 chosen with `ctrl+o`, passes the history by and replaces what it held. The
 terminal's output is never kept, being no reply and never the same twice.
+A reader that would have to ask the service for a reply nobody asked to have
+translated holds it until `t`, showing the newest translation kept meanwhile; a
+`Snapshot` carries the hold, so a popup brought back does not translate either.
 
 A reader is a popup or a pane, and herdr gives the two different powers: a popup
 has no pane id and takes every key while it is open, and herdr cannot hide one;

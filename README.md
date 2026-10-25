@@ -245,14 +245,17 @@ popup only.
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b` a
 page at a time, `tab` shows the reply as the agent wrote it, `y` copies all of
 what is on show (the translation, or the original after `tab`) to the clipboard,
+`t` translates a new reply, `[` and `]` step through the ones translated before,
 `ctrl+t` tries again after a failure, `h` hides the popup, `m` moves it, and
 `esc` or `q` closes. Copying uses `pbcopy` on macOS, and `wl-copy`, `xclip` or
 `xsel` on Linux.
 
 Each translated reply is kept, the last 100 for each project: the repository the
 agent works in, and every worktree of it on its own. A reply kept already is
-shown at once, without asking the service again; the pane key, `ctrl+t` and
-`ctrl+o` translate anew. A reply read before the agent finished it gives way to
+shown at once, without asking the service again. A new one is not translated
+until you press `t`: the popup opens on the latest translation kept, says a new
+reply is waiting, and asks the service nothing. The pane key, `ctrl+t` and
+`ctrl+o` translate anew straight away. A reply read before the agent finished it gives way to
 the whole of it. `[` steps back through the earlier ones and `]` forward again,
 past the newest back to the latest reply; `tab` and `y` work on them as on the
 reply. The history is kept in the plugin's state directory and never sent
