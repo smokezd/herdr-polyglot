@@ -404,6 +404,8 @@ func (r Reader) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return r.handleKey(msg)
+	case tea.MouseMsg:
+		return r.wheel(msg), nil
 
 	case hostProbedMsg:
 		r.picker = r.picker.probed(msg)
@@ -761,6 +763,32 @@ func (r *Reader) nextStyle() tea.Cmd {
 		keep(style)
 		return nil
 	}
+}
+
+// wheelRows is how far a notch of the mouse wheel scrolls, as most terminals
+// scroll their own text.
+const wheelRows = 3
+
+// wheel scrolls with the mouse wheel what the arrow keys would: the text, the
+// preview, or the cursor in the list of replies, a reply a notch.
+func (r Reader) wheel(msg tea.MouseMsg) Reader {
+	by := 0
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		by = -1
+	case tea.MouseButtonWheelDown:
+		by = 1
+	}
+	switch {
+	case by == 0 || r.picker.open:
+	case r.turns.open && r.turns.previewing:
+		r.scrollPreview(r.turns.from + by*wheelRows)
+	case r.turns.open:
+		r.turns.cursor = min(max(r.turns.cursor+by, 0), len(r.turns.turns)-1)
+	default:
+		r.scrollTo(r.from + by*wheelRows)
+	}
+	return r
 }
 
 // toTop shows what opens now from its start.

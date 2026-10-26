@@ -311,6 +311,12 @@ func (r Reader) previewKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return r, kept
 }
 
+// scrollPreview moves the turn shown whole to from, as far as there is text.
+func (r *Reader) scrollPreview(from int) {
+	bottom := max(len(r.previewLines())-r.rows(), 0)
+	r.turns.from = min(max(from, 0), bottom)
+}
+
 // previewLines are the prompt at the cursor and its reply, whole and as
 // written, wrapped to the box and styled line by line.
 func (r Reader) previewLines() []string {

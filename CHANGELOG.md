@@ -30,6 +30,8 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ctrl+o` in any popup lists them, says which are up, and switches. The choice is
   remembered for the popups after it. The header names the host in use, as
   "LM Studio on macstudio".
+- The mouse wheel scrolls the reader, the list of replies and a reply previewed
+  whole; selecting text with the mouse there takes `shift` held down.
 - In the reader, `y` copies all of what is on show to the clipboard, the
   translation or the original, however far it is scrolled; and `ctrl+b` pages up,
   as `space` pages down.

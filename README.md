@@ -242,7 +242,8 @@ takes over; finished ones are not. herdr sizes a pane itself, so the reading
 width and height apply to the popup only.
 
 In the popup `↑ ↓ PageUp PageDown j k g G` scroll, as do `space` and `ctrl+b` a
-page at a time, `tab` shows the reply as the agent wrote it, `M` shows it as
+page at a time and the mouse wheel (selecting text with the mouse then takes
+`shift` held down), `tab` shows the reply as the agent wrote it, `M` shows it as
 plain text or rendered as markdown again, the way glow does, `S` renders it in
 the next of glamour's styles and keeps that one for the next popup, `y` copies
 all of

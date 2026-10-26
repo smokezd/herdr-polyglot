@@ -86,8 +86,11 @@ func runReader(ctx context.Context, settings *config.Settings, hosts *lmHosts, r
 		options.Source, options.Whole = source.Name(), source.Whole()
 	}
 
+	// The mouse wheel scrolls. A terminal hands the mouse to the reader then, so
+	// selecting text takes shift held down; y copies what is on show anyway.
 	program := tea.NewProgram(
-		overlay.NewReader(ctx, found, replyTranslator(chosen.translator), options), tea.WithContext(ctx))
+		overlay.NewReader(ctx, found, replyTranslator(chosen.translator), options),
+		tea.WithContext(ctx), tea.WithMouseCellMotion())
 
 	// A key pressed in herdr reaches the reader through its line: translate
 	// again, move.

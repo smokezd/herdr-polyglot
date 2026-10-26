@@ -1158,3 +1158,56 @@ func TestTGoesBackToTheLatestFromAReplyPickedOrTheHistory(t *testing.T) {
 	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
 	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }
+
+var (
+	wheelDown = tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress}
+	wheelUp   = tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress}
+)
+
+func TestTheMouseWheelScrollsAReply(t *testing.T) {
+	t.Parallel()
+
+	reader := newReader(t, &fixedReplies{replies: []string{numbered(60)}}, &upperTranslator{},
+		overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "ZEILE 0")
+	for range 20 {
+		reader.Send(wheelDown)
+	}
+	waitForText(t, reader, "ZEILE 59", "100%")
+	for range 20 {
+		reader.Send(wheelUp)
+	}
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if final := reader.FinalModel(t).View(); !strings.Contains(final, "ZEILE 0 ") || strings.Contains(final, "ZEILE 59") {
+		t.Errorf("the wheel did not scroll back to the top:\n%s", final)
+	}
+}
+
+func TestTheMouseWheelMovesThroughTheListAndScrollsAPreview(t *testing.T) {
+	t.Parallel()
+	session := sessionOf(
+		overlay.Turn{Prompt: "first question", Reply: "first answer"},
+		overlay.Turn{Prompt: "second question", Reply: numbered(60)},
+		overlay.Turn{Prompt: "thanks", Reply: "welcome"},
+	)
+	translator := &upperTranslator{}
+
+	reader := newReader(t, session, translator, overlay.ReaderOptions{Replies: 1})
+	waitForText(t, reader, "WELCOME")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply · 3/3")
+	reader.Send(wheelUp)
+	waitForText(t, reader, "pick a reply · 2/3")
+	reader.Send(tea.KeyMsg{Runes: []rune("p"), Type: tea.KeyRunes})
+	waitForText(t, reader, "preview 2/3", "zeile 0")
+	for range 30 {
+		reader.Send(wheelDown)
+	}
+	waitForText(t, reader, "zeile 59", "100%")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+}
