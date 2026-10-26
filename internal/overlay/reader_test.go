@@ -19,12 +19,16 @@ import (
 )
 
 type fixedReplies struct {
+	// mu guards replies, which a test may change while a reader reads them.
+	mu      sync.Mutex
 	replies []string
 	err     error
 	asked   int
 }
 
 func (f *fixedReplies) Latest(_ context.Context, n int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = n
 	if len(f.replies) > n {
 		return f.replies[len(f.replies)-n:], f.err
@@ -1106,4 +1110,51 @@ func TestSGoesThroughTheMarkdownStylesAndKeepsTheOneChosen(t *testing.T) {
 	if !moved.Markdown || moved.MarkdownStyle != "dracula" {
 		t.Errorf("handed on markdown %v in %q, want on in dracula", moved.Markdown, moved.MarkdownStyle)
 	}
+}
+
+func TestTPicksUpTheRepliesWrittenSinceWithoutAskingAgainForOnesKept(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "first answer", Translation: "第一个回答"}}}
+	replies := &fixedReplies{replies: []string{"first answer"}}
+	translator := &upperTranslator{}
+
+	reader := newReader(t, replies, translator, overlay.ReaderOptions{Replies: 1, History: kept, InPane: true})
+	waitForText(t, reader, "第一个回答", "t latest")
+	// Nothing new: t shows the same reply from the history again.
+	reader.Send(translateKey)
+	time.Sleep(200 * time.Millisecond)
+	if told := translator.told(); len(told) != 0 {
+		t.Fatalf("the service was asked %d times for a reply kept, want not at all", len(told))
+	}
+	// The agent answers again while the pane stays open.
+	replies.mu.Lock()
+	replies.replies = []string{"first answer", "second answer"}
+	replies.mu.Unlock()
+	reader.Send(translateKey)
+	waitForText(t, reader, "SECOND ANSWER")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
+
+	if told := translator.told(); len(told) != 1 {
+		t.Errorf("the service was asked %d times, want once, for the new reply", len(told))
+	}
+}
+
+func TestTGoesBackToTheLatestFromAReplyPickedOrTheHistory(t *testing.T) {
+	t.Parallel()
+	kept := &keptHistory{entries: []overlay.HistoryEntry{{Original: "older", Translation: "较早的"}}}
+
+	reader := newReader(t, threeTurns(), &upperTranslator{}, overlay.ReaderOptions{Replies: 1, History: kept})
+	waitForText(t, reader, "较早的", "t translate")
+	reader.Send(translateKey)
+	waitForText(t, reader, "WELCOME", "1 reply")
+	reader.Send(listKey)
+	waitForText(t, reader, "pick a reply")
+	reader.Send(tea.KeyMsg{Runes: []rune("g"), Type: tea.KeyRunes})
+	reader.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	waitForText(t, reader, "PLAN REPLY", "reply 1/3")
+	reader.Send(translateKey)
+	waitForText(t, reader, "WELCOME", "1 reply")
+	reader.Send(tea.KeyMsg{Type: tea.KeyEsc})
+	reader.WaitFinished(t, teatest.WithFinalTimeout(time.Second))
 }

@@ -14,7 +14,9 @@ the versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before is shown at once without asking the service again, and `[` and `]` step
   back and forth through the earlier ones. A new reply waits for `t`: the popup
   opens on the latest translation kept, and the service is asked nothing until
-  then.
+  then. `t` reads the latest replies again first, so a reader left open, a pane
+  above all, picks up what the agent said since without asking twice for a
+  reply kept.
 - The reader renders what it shows as markdown, the way glow does: `M` switches
   it off and on in the reader and in a reply previewed whole, and
   `HERDR_POLYGLOT_READ_MARKDOWN=0` starts it off. `S` goes through glamour's

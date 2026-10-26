@@ -182,8 +182,10 @@ type Reader struct {
 	// looked in: what it holds is what is being replaced.
 	fresh bool
 	// held says the replies on show wait for t: a reader opens on what was
-	// translated before rather than asking the service unbidden.
-	held bool
+	// translated before rather than asking the service unbidden. asked says t
+	// or the pane key asked for the latest, so they do not wait.
+	held  bool
+	asked bool
 	// browse is the history being read instead of the replies, and at the
 	// entry on show. Without it the replies are.
 	browse []HistoryEntry
@@ -345,15 +347,30 @@ func (r Reader) waitForAnswer() tea.Cmd {
 	return tea.Tick(answerPoll, func(time.Time) tea.Msg { return waitedMsg{fetch: fetch} })
 }
 
-// refresh drops what is on show and reads the agent's latest replies again.
+// refresh drops what is on show and reads the agent's latest replies again,
+// each translated anew.
 func (r Reader) refresh() (tea.Model, tea.Cmd) {
+	return r.reread(true)
+}
+
+// latest is t: the agent's latest replies, read again so a reader left open
+// has the ones written since, and translated. One kept already is shown from
+// the history; only the new ones go to the service.
+func (r Reader) latest() (tea.Model, tea.Cmd) {
+	return r.reread(false)
+}
+
+// reread drops what is on show and reads the agent's latest replies again, to
+// be translated as soon as they are read: fresh asks for every one of them
+// anew. Either way it was asked for, so nothing waits for t.
+func (r Reader) reread(fresh bool) (tea.Model, tea.Cmd) {
 	r.stop()
 	r.attempt++
 	r.fetch++
 	r.loaded, r.shown, r.context, r.results, r.next = false, nil, nil, nil, 0
 	r.failure, r.original = r.options.Trouble, false
 	r.toTop()
-	r.fresh, r.browse, r.picked = true, nil, ""
+	r.fresh, r.asked, r.held, r.browse, r.picked = fresh, true, false, nil, ""
 	r.canvas.endPulse()
 	fetching := r.fetchReplies()
 	return r, fetching
@@ -505,7 +522,7 @@ func (s result) finished(text string, now time.Time) result {
 // service, and nobody asked for that yet. A reader with no history, or one
 // told to translate again, does not wait.
 func (r Reader) holds() bool {
-	if r.options.History == nil || r.fresh {
+	if r.options.History == nil || r.fresh || r.asked {
 		return false
 	}
 	if r.options.Whole {
@@ -675,16 +692,7 @@ func (r Reader) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return r, started
 
 	case key.String() == "t":
-		if r.held {
-			r.held, r.browse = false, nil
-			r.toTop()
-			started := r.startTranslating()
-			return r, started
-		}
-		if r.browsing() {
-			r.browse = nil
-			r.toTop()
-		}
+		return r.latest()
 
 	case key.String() == "l":
 		return r, r.listTurns()
@@ -1072,6 +1080,8 @@ func (r Reader) footer(inner int) string {
 	}
 	if r.held {
 		hints = append([]string{key("t", "translate")}, hints...)
+	} else {
+		hints = append([]string{key("t", "latest")}, hints...)
 	}
 	if r.options.History != nil {
 		hints = append(hints, key("[ ]", "history"))
